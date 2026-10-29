@@ -356,9 +356,36 @@ DEFAULT_MERMAID = """graph LR
 st.set_page_config(page_title="迹评", page_icon="🌊", layout="wide")
 init_db()
 
+# 封面页
+if "entered" not in st.session_state:
+    st.session_state.entered = False
+
+if not st.session_state.entered:
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; font-size:60px;'>🌊 迹评</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center; color:#888;'>EVERY STEP COUNTS</h3>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#aaa;'>华为ENSP · Linux · MySQL 多环境实训平台</p>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("进 入", use_container_width=True, type="primary"):
+            st.session_state.entered = True
+            st.rerun()
+    st.stop()
+
+# 老师端密码校验
+TEACHER_PASSWORD = "123456"
+
 st.sidebar.title("迹评 EVERY STEP COUNTS")
-st.sidebar.caption("作者：张昊 · 信安252")
 role = st.sidebar.radio("选择身份", ["学生端", "老师端"])
+
+# 老师端需要密码
+if role == "老师端":
+    pwd = st.sidebar.text_input("老师密码", type="password")
+    if pwd != TEACHER_PASSWORD:
+        st.sidebar.warning("请输入正确密码")
+        st.stop()
 
 
 # ==================== 学生端 ====================
