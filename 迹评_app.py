@@ -413,7 +413,6 @@ if role == "老师端":
         cid_list = [str(x[0]) + " | " + x[1] for x in my_classes]
         sel_c_str = st.selectbox("查看哪个班级学情", cid_list, key="statclass")
         sel_cid = int(sel_c_str.split("|")[0].strip())
-        st.info("在线统计功能已关闭，提升稳定性")
         st.subheader("本班学生记录")
         stu_list = get_students_by_class(sel_cid)
         if not stu_list:
