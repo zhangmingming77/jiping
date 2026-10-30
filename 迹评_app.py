@@ -90,34 +90,41 @@ def clear_student_record(s):
     conn = sqlite3.connect("jiping.db"); c = conn.cursor()
     c.execute("DELETE FROM records WHERE student=?", (s,)); conn.commit(); conn.close()
 
-ENV_LABEL = {"vrp": "🌐 VRP网络", "linux": "🐧 Linux", "sql": "🗄️ 数据库"}
+ENV_LABEL = {"vrp": "🌐 VRP网络(ENSP)", "linux": "🐧 Linux(CentOS)", "sql": "🗄️ 数据库(MySQL)"}
 ENV_PROMPT = {"vrp": "<Huawei>", "linux": "[student@localhost ~]$", "sql": "mysql>"}
-ENV_ERROR = {"vrp": "Error:Unrecognized command.", "linux": "-bash: command not found", "sql": "ERROR 1064: SQL syntax error"}
+ENV_ERROR = {"vrp": "Error:Unrecognized command found at '^' position.", "linux": "-bash: 未找到该命令", "sql": "ERROR 1064: SQL语法错误"}
 
 def vrp_sim(cmd):
-    m = {"system-view": "Enter system view", "sys": "Enter system view", "q": "Return to user view",
-        "display ip interface brief": "GE0/0/0  192.168.1.1/24  up  up", "display vlan": "VLAN1  GE0/0/1\nVLAN10 GE0/0/0",
-        "vlan 10": "VLAN 10 created", "interface g0/0/0": "GigabitEthernet0/0/0",
-        "ip address 192.168.1.1 255.255.255.0": "IP configured", "ospf 1 router-id 1.1.1.1": "OSPF started",
-        "area 0": "Enter Area 0", "network 192.168.1.0 0.0.0.255": "Network added",
-        "display ospf peer": "Router ID: 2.2.2.2  State: Full", "vrrp vrid 1 virtual-ip 192.168.1.254": "VRRP group created",
-        "save": "Save OK"}
+    m = {"system-view": "Enter system view, return user view with Ctrl+Z.", "sys": "Enter system view", "q": "Return to user view", "quit": "Return to user view",
+        "display ip interface brief": "Interface    IP/Mask      Physical  Protocol\nGE0/0/0      192.168.1.1/24  up     up\nGE0/0/1      unassigned     down   down",
+        "display vlan": "VLAN ID Type  Status  Ports\n1       static active GE0/0/1\n10      static active GE0/0/0",
+        "vlan 10": "Info: VLAN 10 has been created.", "interface g0/0/0": "GigabitEthernet0/0/0",
+        "interface gigabitethernet 0/0/0": "GigabitEthernet0/0/0",
+        "ip address 192.168.1.1 255.255.255.0": "Info: IP configured.", "ospf 1 router-id 1.1.1.1": "Info: OSPF started.",
+        "area 0": "Enter Area 0 view", "network 192.168.1.0 0.0.0.255": "Info: Network added.",
+        "display ospf peer": "OSPF Process 1  Router ID: 2.2.2.2  State: Full",
+        "vrrp vrid 1 virtual-ip 192.168.1.254": "Info: VRRP group 1 created.", "save": "Info: Save OK."}
     k = cmd.strip().lower()
     return (True, m[k]) if k in m else (False, ENV_ERROR["vrp"])
 
 def linux_sim(cmd):
     cl = cmd.strip().lower()
     s = cl[5:].strip() if cl.startswith("sudo ") else cl
-    m = {"pwd": "/home/student", "whoami": "student", "ls": "Desktop Documents Downloads",
-        "cat /etc/os-release": 'CentOS Linux 7 (Core)', "ip addr": "ens33: 192.168.1.10/24",
-        "ping 192.168.1.1 -c 3": "3 received, 0% loss", "firewall-cmd --state": "running",
-        "systemctl status network": "active", "netstat -tlnp": "0.0.0.0:22 sshd"}
+    m = {"pwd": "/home/student", "whoami": "student", "hostname": "localhost.localdomain",
+        "ls": "Desktop Documents Downloads Music Pictures",
+        "cat /etc/os-release": 'NAME="CentOS Linux"\nVERSION="7 (Core)"',
+        "ip addr": "ens33: inet 192.168.1.10/24\nlo: inet 127.0.0.1/8",
+        "ip a": "ens33: inet 192.168.1.10/24",
+        "ping 192.168.1.1 -c 3": "3 received, 0% packet loss",
+        "systemctl status network": "Active: active", "firewall-cmd --state": "running",
+        "netstat -tlnp": "tcp 0.0.0.0:22 LISTEN sshd", "yum install -y vim": "Complete!"}
     return (True, m[s]) if s in m else (False, ENV_ERROR["linux"])
 
 def sql_sim(cmd):
     k = cmd.strip().lower().rstrip(";").strip()
-    m = {"show databases": "test", "use test": "Database changed", "show tables": "students",
-        "select * from students": "1 张三 19\n2 李四 20", "desc students": "id int\nname varchar(20)", "exit": "Bye"}
+    m = {"show databases": "information_schema  mysql  test", "use test": "Database changed",
+        "show tables": "students  courses", "select * from students": "1 张三 19\n2 李四 20",
+        "desc students": "id int\nname varchar(20)", "exit": "Bye"}
     return (True, m[k]) if k in m else (False, ENV_ERROR["sql"])
 
 def simulate(env, cmd):
@@ -129,7 +136,7 @@ DEFAULT_CONTENT = {
     "vrp": "1. system-view\n2. interface g0/0/0\n3. ip address 192.168.1.1 255.255.255.0\n4. ospf 1 router-id 1.1.1.1",
     "linux": "1. cat /etc/os-release\n2. ip addr\n3. ping 192.168.1.1 -c 3\n4. firewall-cmd --state",
     "sql": "1. show databases;\n2. use test;\n3. show tables;\n4. select * from students;"}
-DEFAULT_MERMAID = "graph LR\n    R1[R1] --- GE0/0/0\n    GE0/0/0 --- LINK{{链路}}\n    LINK --- GE0/0/1\n    GE0/0/1 --- R2[R2]\n    style R1 fill:#87CEFA"
+DEFAULT_MERMAID = "graph LR\n    R1[R1] --- GE0/0/0\n    GE0/0/0 --- LINK{{链路}}\n    LINK --- GE0/0/1\n    GE0/0/1 --- R2[R2]\n    style R1 fill:#87CEFA\n    style R2 fill:#87CEFA"
 
 st.set_page_config(page_title="迹评", page_icon="🌊", layout="wide")
 init_db()
@@ -150,7 +157,7 @@ st.sidebar.title("迹评 EVERY STEP COUNTS")
 role = st.sidebar.radio("选择身份", ["学生端", "老师端"])
 if role == "老师端":
     pwd = st.sidebar.text_input("老师密码", type="password")
-    if pwd != "123456": st.sidebar.warning("密码错误"); st.stop()
+    if pwd != "123456": st.sidebar.warning("请输入正确密码"); st.stop()
 
 if role == "学生端":
     st.title("学生实操练习")
@@ -163,18 +170,24 @@ if role == "学生端":
         st.stop()
     sn = st.session_state.student_name
     touch_online(sn)
-    st.caption(f"当前学生：{sn}")
-    if st.button("切换学生"): del st.session_state.student_name; st.rerun()
+    c1, c2 = st.columns([3,1])
+    c1.caption(f"当前学生：{sn}")
+    if c2.button("🔴 下机退出"):
+        conn = sqlite3.connect("jiping.db"); cu = conn.cursor()
+        cu.execute("DELETE FROM online WHERE student=?", (sn,))
+        conn.commit(); conn.close()
+        del st.session_state.student_name; st.rerun()
     tasks = get_all_tasks()
-    if not tasks: st.warning("暂无任务")
+    if not tasks: st.warning("⚠️ 暂无任务")
     else:
         opts = {f"[{ENV_LABEL.get(r[5],r[5])}] {r[1]}": r for r in tasks}
         sel = st.selectbox("选择任务", list(opts.keys()))
         row = opts[sel]; tid, title, content, graph, ctime, env = row
         st.subheader(f"📋 {title}  `{ENV_LABEL.get(env,env)}`")
         st.markdown(content)
-        if env=="vrp" and graph and graph.strip(): render_mermaid(graph)
-        st.markdown("---"); st.subheader(f"💻 终端")
+        if env=="vrp" and graph and graph.strip():
+            st.markdown("---"); st.subheader("🗺️ 拓扑图"); render_mermaid(graph)
+        st.markdown("---"); st.subheader("💻 终端")
         cmd = st.text_input(ENV_PROMPT.get(env,">"), key="tc")
         if cmd.strip():
             ok, out = simulate(env, cmd); add_record(sn, tid, cmd, ok, out)
@@ -189,10 +202,11 @@ if role == "学生端":
         else: st.info("暂无记录")
 else:
     st.title("老师管理后台")
+    components.html("<script>setTimeout(()=>window.location.reload(),10000)</script>", height=0)
     t1, t2 = st.tabs(["📤 发布任务", "📊 学情查看"])
     with t1:
         env = st.selectbox("环境", ["vrp","linux","sql"], format_func=lambda x: ENV_LABEL[x])
-        tt = st.text_input("任务名称", key=f"t_{env}")
+        tt = st.text_input("任务名称", value={"vrp":"OSPF配置","linux":"CentOS网络检查","sql":"MySQL查询"}[env], key=f"t_{env}")
         tc = st.text_area("任务要求", value=DEFAULT_CONTENT[env], height=150, key=f"c_{env}")
         mg = ""
         if env=="vrp": mg = st.text_area("Mermaid拓扑", value=DEFAULT_MERMAID, height=150, key=f"m_{env}")
