@@ -6,6 +6,7 @@ from datetime import datetime
 import pandas as pd
 import html as _html
 import os as _os
+import time
 
 _MERMAID_JS_CACHE = ""
 
@@ -40,7 +41,7 @@ def init_db():
     conn = sqlite3.connect("jiping.db")
     c = conn.cursor()
     c.execute("PRAGMA foreign_keys = OFF;")
-    # 教师表：username就是老师名字
+    # 教师表
     c.execute('''CREATE TABLE IF NOT EXISTS teachers (
         username TEXT PRIMARY KEY,
         password TEXT NOT NULL,
@@ -54,7 +55,7 @@ def init_db():
         create_time TEXT,
         UNIQUE(class_name, teacher)
     )''')
-    # 任务表增加 class_id 绑定班级
+    # 任务表
     c.execute('''CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
@@ -64,7 +65,7 @@ def init_db():
         env TEXT DEFAULT 'vrp',
         class_id INTEGER
     )''')
-    # 学生实操记录，增加class_id
+    # 学生实操记录
     c.execute('''CREATE TABLE IF NOT EXISTS records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student TEXT,
@@ -75,7 +76,7 @@ def init_db():
         output TEXT,
         timestamp TEXT
     )''')
-    # 在线表，去掉外键避免麻烦
+    # 在线表
     c.execute('''CREATE TABLE IF NOT EXISTS online (
         student TEXT,
         class_id INTEGER,
@@ -170,14 +171,27 @@ def del_task(tid):
     conn.commit()
     conn.close()
 
-# ========== 在线 ==========
+# ========== 在线【重点修复】限流+捕获异常，失败不炸页面 ==========
 def touch_online(student, class_id):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO online (student, class_id, last_seen) VALUES (?,?,?)",
-              (student, class_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    conn.commit()
-    conn.close()
+    now_ts = time.time()
+    # 会话里记录上次上报时间，30秒最多写一次数据库
+    if "last_touch_time" not in st.session_state:
+        st.session_state.last_touch_time = 0
+    if now_ts - st.session_state.last_touch_time < 30:
+        return
+    try:
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("PRAGMA journal_mode=WAL;")
+        c.execute("PRAGMA busy_timeout=5000;")
+        c.execute("INSERT OR REPLACE INTO online (student, class_id, last_seen) VALUES (?,?,?)",
+                  (student, class_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+        st.session_state.last_touch_time = now_ts
+    except Exception:
+        # 锁库、写入失败直接静默跳过，不抛出报错
+        pass
 
 def get_online_students_by_class(cid):
     conn = sqlite3.connect("jiping.db", timeout=5)
@@ -196,21 +210,27 @@ def get_online_students_by_class(cid):
     return online
 
 def offline_student(student, cid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("DELETE FROM online WHERE student=? AND class_id=?", (student, cid))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("DELETE FROM online WHERE student=? AND class_id=?", (student, cid))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 # ========== 记录 ==========
 def add_record(student, cid, tid, cmd, ok, out):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
-                 VALUES (?,?,?,?,?,?,?)''',
-              (student, cid, tid, cmd, 1 if ok else 0, out, datetime.now().strftime("%H:%M:%S")))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
+                     VALUES (?,?,?,?,?,?,?)''',
+                  (student, cid, tid, cmd, 1 if ok else 0, out, datetime.now().strftime("%H:%M:%S")))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 def get_records_by_class_student(cid, student):
     conn = sqlite3.connect("jiping.db", timeout=5)
@@ -241,13 +261,16 @@ def get_students_by_class(cid):
     return [r[0] for r in rows]
 
 def clear_student_record(cid, s):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
-# ========== 模拟器部分不变 ==========
+# ========== 模拟器部分 ==========
 ENV_LABEL = {"vrp": "🌐 VRP网络(ENSP)", "linux": "🐧 Linux(CentOS)", "sql": "🗄️ 数据库(MySQL)"}
 ENV_PROMPT = {"vrp": "<Huawei>", "linux": "[student@localhost ~]$", "sql": "mysql>"}
 ENV_ERROR = {"vrp": "Error:Unrecognized command found at '^' position.", "linux": "-bash: 未找到该命令", "sql": "ERROR 1064: SQL语法错误"}
@@ -317,7 +340,7 @@ if not st.session_state.entered:
 st.sidebar.title("迹评 EVERY STEP COUNTS")
 role = st.sidebar.radio("选择身份", ["学生端", "老师端"])
 
-# -------------------------- 老师端：注册/登录 + 班级 + 本班任务 + 本班学情 --------------------------
+# -------------------------- 老师端 --------------------------
 if role == "老师端":
     if "teacher_login_ok" not in st.session_state:
         st.session_state.teacher_login_ok = False
@@ -347,7 +370,6 @@ if role == "老师端":
                 else:
                     st.warning("名字不能为空，两次密码一致")
         st.stop()
-    # 已经登录的老师
     tea_name = st.session_state.teacher_name
     st.sidebar.success(f"✅ 已登录：{tea_name}")
     if st.sidebar.button("退出登录"):
@@ -444,7 +466,7 @@ if role == "老师端":
                 clear_student_record(sel_cid, sel_stu)
                 st.rerun()
 
-# -------------------------- 学生端：选班级+姓名，只看本班任务 --------------------------
+# -------------------------- 学生端 --------------------------
 else:
     st.title("学生实操练习")
     if "student_name" not in st.session_state:
@@ -472,6 +494,7 @@ else:
         st.stop()
     sn = st.session_state.student_name
     scid = st.session_state.student_class_id
+    # 上报在线状态（带限流+异常捕获）
     touch_online(sn, scid)
     c1, c2 = st.columns([3,1])
     c1.caption(f"当前学生：{sn}｜班级：{get_class_by_id(scid)[1]}")
