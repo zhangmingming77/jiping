@@ -1,15 +1,66 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import streamlit.components.v1 as components
-import sqlite3  # 保留标准库，用于 OperationalError / IntegrityError 异常判断
-import libsql_experimental  # 连接 Turso 云端数据库
+import requests
 from datetime import datetime
 import pandas as pd
 import html as _html
 import os as _os
-import time
 
 _MERMAID_JS_CACHE = ""
+
+# ========== Turso 云端数据库（HTTP 接口，无需本地数据库文件） ==========
+class IntegrityError(Exception):
+    """唯一约束冲突（模拟 sqlite3.IntegrityError）"""
+
+_turso = None
+
+def get_db():
+    """读取 Streamlit Secrets，构造 Turso HTTP 连接配置（全局复用）"""
+    global _turso
+    if _turso:
+        return _turso
+    url = st.secrets.get("TURSO_URL") or _os.environ.get("TURSO_URL")
+    token = st.secrets.get("TURSO_AUTH_TOKEN") or _os.environ.get("TURSO_AUTH_TOKEN")
+    if not url:
+        st.error("请先在 Streamlit Cloud 的 Settings → Secrets 里配置 TURSO_URL 和 TURSO_AUTH_TOKEN")
+        st.stop()
+    endpoint = url.replace("libsql://", "https://").rstrip("/") + "/v2/pipeline"
+    _turso = {"endpoint": endpoint, "token": token}
+    return _turso
+
+def db_exec(sql, args=None):
+    """执行一条 SQL。
+    返回 (rows, lastid, rowcount)。
+    rows 是 list[tuple]（SELECT 用）；写入时 rows 为空。
+    唯一约束冲突抛 IntegrityError；其他错误抛 RuntimeError。
+    """
+    db = get_db()
+    body = {"requests": [
+        {"type": "execute", "stmt": {"sql": sql, "args": args or []}},
+        {"type": "close"}
+    ]}
+    r = requests.post(
+        db["endpoint"],
+        headers={
+            "Authorization": f"Bearer {db['token']}",
+            "Content-Type": "application/json"
+        },
+        json=body, timeout=30
+    )
+    r.raise_for_status()
+    data = r.json()
+    item = data["results"][0]
+    if "error" in item:
+        msg = item["error"].get("message", "unknown error")
+        if "UNIQUE" in msg or "PRIMARY KEY" in msg:
+            raise IntegrityError(msg)
+        raise RuntimeError(msg)
+    res = item.get("response", {}).get("result", {}) or {}
+    rows = [tuple(row) for row in res.get("rows", [])]
+    lastid = res.get("last_insert_rowid", 0) or 0
+    affected = res.get("affected_row_count", 0) or 0
+    return rows, lastid, affected
 
 def _load_mermaid_js():
     global _MERMAID_JS_CACHE
@@ -33,205 +84,104 @@ def render_mermaid(code, height=420):
 <script>{js}</script>
 <script>try{{mermaid.initialize({{startOnLoad:true,theme:'default',securityLevel:'loose'}});}}catch(e){{}}</script>""", height=height)
 
-def run_sql_with_retry(fn, retry=5, delay=0.25):
-    for i in range(retry):
-        try:
-            return fn()
-        except sqlite3.OperationalError:
-            time.sleep(delay)
-    return None
-
-def get_conn():
-    # 从 Streamlit Secrets 读取 Turso 连接信息（本地调试时也可从环境变量读）
-    url = st.secrets.get("TURSO_URL") or _os.environ.get("TURSO_URL")
-    token = st.secrets.get("TURSO_AUTH_TOKEN") or _os.environ.get("TURSO_AUTH_TOKEN")
-    if not url:
-        st.error("请先在 Streamlit Cloud 的 Settings → Secrets 里配置 TURSO_URL 和 TURSO_AUTH_TOKEN")
-        st.stop()
-    return libsql_experimental.connect(url, auth_token=token)
-
 def init_db():
-    def _init():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS teachers (
-            username TEXT PRIMARY KEY,
-            password TEXT NOT NULL,
-            create_time TEXT
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS classes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            class_name TEXT NOT NULL,
-            teacher TEXT NOT NULL,
-            create_time TEXT,
-            UNIQUE(class_name, teacher)
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            content TEXT,
-            mermaid_graph TEXT,
-            create_time TEXT,
-            env TEXT DEFAULT 'vrp',
-            class_id INTEGER
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student TEXT,
-            class_id INTEGER,
-            task_id INTEGER,
-            command TEXT,
-            is_ok INTEGER,
-            output TEXT,
-            timestamp TEXT
-        )''')
-        conn.commit()
-        conn.close()
-    run_sql_with_retry(_init)
+    db_exec('''CREATE TABLE IF NOT EXISTS teachers (
+        username TEXT PRIMARY KEY,
+        password TEXT NOT NULL,
+        create_time TEXT
+    )''')
+    db_exec('''CREATE TABLE IF NOT EXISTS classes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_name TEXT NOT NULL,
+        teacher TEXT NOT NULL,
+        create_time TEXT,
+        UNIQUE(class_name, teacher)
+    )''')
+    db_exec('''CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT,
+        mermaid_graph TEXT,
+        create_time TEXT,
+        env TEXT DEFAULT 'vrp',
+        class_id INTEGER
+    )''')
+    db_exec('''CREATE TABLE IF NOT EXISTS records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student TEXT,
+        class_id INTEGER,
+        task_id INTEGER,
+        command TEXT,
+        is_ok INTEGER,
+        output TEXT,
+        timestamp TEXT
+    )''')
 
 # ========== 教师 ==========
 def teacher_register(username, pwd):
-    def _reg():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("INSERT INTO teachers (username, password, create_time) VALUES (?,?,?)",
-                  (username, pwd, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        conn.commit()
-        conn.close()
-        return True
     try:
-        return run_sql_with_retry(_reg)
-    except sqlite3.IntegrityError:
+        db_exec("INSERT INTO teachers (username, password, create_time) VALUES (?,?,?)",
+                (username, pwd, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        return True
+    except IntegrityError:
         return False
 
 def teacher_login(username, pwd):
-    def _login():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT 1 FROM teachers WHERE username=? AND password=?", (username, pwd))
-        row = c.fetchone()
-        conn.close()
-        return row is not None
-    return run_sql_with_retry(_login)
+    rows, _, _ = db_exec("SELECT 1 FROM teachers WHERE username=? AND password=?", (username, pwd))
+    return len(rows) > 0
 
 # ========== 班级 ==========
 def create_class(class_name, teacher):
-    def _create():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("INSERT INTO classes (class_name, teacher, create_time) VALUES (?,?,?)",
-                  (class_name, teacher, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        conn.commit()
-        conn.close()
-        return True
     try:
-        return run_sql_with_retry(_create)
-    except sqlite3.IntegrityError:
+        db_exec("INSERT INTO classes (class_name, teacher, create_time) VALUES (?,?,?)",
+                (class_name, teacher, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        return True
+    except IntegrityError:
         return False
 
 def get_teacher_classes(teacher):
-    def _get():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT id, class_name FROM classes WHERE teacher=?", (teacher,))
-        rows = c.fetchall()
-        conn.close()
-        return rows
-    return run_sql_with_retry(_get) or []
+    rows, _, _ = db_exec("SELECT id, class_name FROM classes WHERE teacher=?", (teacher,))
+    return rows
 
 def get_class_by_id(cid):
-    def _get():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT id, class_name, teacher FROM classes WHERE id=?", (cid,))
-        r = c.fetchone()
-        conn.close()
-        return r
-    return run_sql_with_retry(_get)
+    rows, _, _ = db_exec("SELECT id, class_name, teacher FROM classes WHERE id=?", (cid,))
+    return rows[0] if rows else None
 
 def get_all_class_ids_names():
-    def _get():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT id, class_name FROM classes")
-        rows = c.fetchall()
-        conn.close()
-        return rows
-    return run_sql_with_retry(_get) or []
+    rows, _, _ = db_exec("SELECT id, class_name FROM classes")
+    return rows
 
 # ========== 任务 ==========
 def add_task(title, content, graph, env, class_id):
-    def _add():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute('''INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
-                     VALUES (?,?,?,?,?,?)''',
-                  (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id))
-        conn.commit()
-        conn.close()
-    run_sql_with_retry(_add)
+    db_exec('''INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
+               VALUES (?,?,?,?,?,?)''',
+            (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id))
 
 def get_tasks_by_class(cid):
-    def _get():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks WHERE class_id=? ORDER BY id DESC", (cid,))
-        rows = c.fetchall()
-        conn.close()
-        return rows
-    return run_sql_with_retry(_get) or []
+    rows, _, _ = db_exec("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks WHERE class_id=? ORDER BY id DESC", (cid,))
+    return rows
 
 def del_task(tid):
-    def _del():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("DELETE FROM tasks WHERE id=?", (tid,))
-        conn.commit()
-        conn.close()
-    run_sql_with_retry(_del)
+    db_exec("DELETE FROM tasks WHERE id=?", (tid,))
 
 # ========== 记录 ==========
 def add_record(student, cid, tid, cmd, ok, out):
-    def _add():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
-                     VALUES (?,?,?,?,?,?,?)''',
-                  (student, cid, tid, cmd, 1 if ok else 0, out, datetime.now().strftime("%H:%M:%S")))
-        conn.commit()
-        conn.close()
-    run_sql_with_retry(_add)
+    db_exec('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
+               VALUES (?,?,?,?,?,?,?)''',
+            (student, cid, tid, cmd, 1 if ok else 0, out, datetime.now().strftime("%H:%M:%S")))
 
 def get_records_by_class_student(cid, student):
-    def _get():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute('''SELECT t.title, r.command, r.is_ok, r.output, r.timestamp
-                     FROM records r LEFT JOIN tasks t ON r.task_id=t.id
-                     WHERE r.student=? AND r.class_id=? ORDER BY r.id''', (student, cid))
-        rows = c.fetchall()
-        conn.close()
-        return rows
-    return run_sql_with_retry(_get) or []
+    rows, _, _ = db_exec('''SELECT t.title, r.command, r.is_ok, r.output, r.timestamp
+                 FROM records r LEFT JOIN tasks t ON r.task_id=t.id
+                 WHERE r.student=? AND r.class_id=? ORDER BY r.id''', (student, cid))
+    return rows
 
 def get_students_by_class(cid):
-    def _get():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT student FROM records WHERE class_id=?", (cid,))
-        rows = c.fetchall()
-        conn.close()
-        return [r[0] for r in rows]
-    return run_sql_with_retry(_get) or []
+    rows, _, _ = db_exec("SELECT DISTINCT student FROM records WHERE class_id=?", (cid,))
+    return [r[0] for r in rows]
 
 def clear_student_record(cid, s):
-    def _clear():
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
-        conn.commit()
-        conn.close()
-    run_sql_with_retry(_clear)
+    db_exec("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
 
 # ========== 模拟器 ==========
 ENV_LABEL = {"vrp": "🌐 VRP网络(ENSP)", "linux": "🐧 Linux(CentOS)", "sql": "🗄️ 数据库(MySQL)"}
@@ -284,7 +234,11 @@ DEFAULT_MERMAID = "graph LR\n    R1[R1] --- GE0/0/0\n    GE0/0/0 --- LINK{{链�
 
 # ==================== 页面入口 ====================
 st.set_page_config(page_title="迹评", page_icon="🌊", layout="wide")
-init_db()
+try:
+    init_db()
+except Exception as e:
+    st.error(f"数据库连接失败：{e}")
+    st.stop()
 
 if "entered" not in st.session_state:
     st.session_state.entered = False
