@@ -39,6 +39,7 @@ def _ensure_column(c, table, col, ddl):
 def init_db():
     conn = sqlite3.connect("jiping.db")
     c = conn.cursor()
+    c.execute("PRAGMA foreign_keys = OFF;")
     # 教师表：username就是老师名字
     c.execute('''CREATE TABLE IF NOT EXISTS teachers (
         username TEXT PRIMARY KEY,
@@ -61,8 +62,7 @@ def init_db():
         mermaid_graph TEXT,
         create_time TEXT,
         env TEXT DEFAULT 'vrp',
-        class_id INTEGER,
-        FOREIGN KEY(class_id) REFERENCES classes(id)
+        class_id INTEGER
     )''')
     # 学生实操记录，增加class_id
     c.execute('''CREATE TABLE IF NOT EXISTS records (
@@ -73,24 +73,21 @@ def init_db():
         command TEXT,
         is_ok INTEGER,
         output TEXT,
-        timestamp TEXT,
-        FOREIGN KEY(task_id) REFERENCES tasks(id),
-        FOREIGN KEY(class_id) REFERENCES classes(id)
+        timestamp TEXT
     )''')
-    # 在线表增加班级
+    # 在线表，去掉外键避免麻烦
     c.execute('''CREATE TABLE IF NOT EXISTS online (
         student TEXT,
         class_id INTEGER,
         last_seen TEXT,
-        PRIMARY KEY(student, class_id),
-        FOREIGN KEY(class_id) REFERENCES classes(id)
+        PRIMARY KEY(student, class_id)
     )''')
     conn.commit()
     conn.close()
 
 # ========== 教师相关 ==========
 def teacher_register(username, pwd):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     try:
         c.execute("INSERT INTO teachers (username, password, create_time) VALUES (?,?,?)",
@@ -103,7 +100,7 @@ def teacher_register(username, pwd):
         conn.close()
 
 def teacher_login(username, pwd):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT 1 FROM teachers WHERE username=? AND password=?", (username, pwd))
     row = c.fetchone()
@@ -112,7 +109,7 @@ def teacher_login(username, pwd):
 
 # ========== 班级相关 ==========
 def create_class(class_name, teacher):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     try:
         c.execute("INSERT INTO classes (class_name, teacher, create_time) VALUES (?,?,?)",
@@ -125,7 +122,7 @@ def create_class(class_name, teacher):
         conn.close()
 
 def get_teacher_classes(teacher):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT id, class_name FROM classes WHERE teacher=?", (teacher,))
     rows = c.fetchall()
@@ -133,7 +130,7 @@ def get_teacher_classes(teacher):
     return rows
 
 def get_class_by_id(cid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT id, class_name, teacher FROM classes WHERE id=?", (cid,))
     r = c.fetchone()
@@ -141,7 +138,7 @@ def get_class_by_id(cid):
     return r
 
 def get_all_class_ids_names():
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT id, class_name FROM classes")
     rows = c.fetchall()
@@ -150,7 +147,7 @@ def get_all_class_ids_names():
 
 # ========== 任务 ==========
 def add_task(title, content, graph, env, class_id):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute('''INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
                  VALUES (?,?,?,?,?,?)''',
@@ -159,7 +156,7 @@ def add_task(title, content, graph, env, class_id):
     conn.close()
 
 def get_tasks_by_class(cid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks WHERE class_id=? ORDER BY id DESC", (cid,))
     rows = c.fetchall()
@@ -167,7 +164,7 @@ def get_tasks_by_class(cid):
     return rows
 
 def del_task(tid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("DELETE FROM tasks WHERE id=?", (tid,))
     conn.commit()
@@ -175,7 +172,7 @@ def del_task(tid):
 
 # ========== 在线 ==========
 def touch_online(student, class_id):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO online (student, class_id, last_seen) VALUES (?,?,?)",
               (student, class_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -183,7 +180,7 @@ def touch_online(student, class_id):
     conn.close()
 
 def get_online_students_by_class(cid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT student, last_seen FROM online WHERE class_id=?", (cid,))
     rows = c.fetchall()
@@ -199,7 +196,7 @@ def get_online_students_by_class(cid):
     return online
 
 def offline_student(student, cid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("DELETE FROM online WHERE student=? AND class_id=?", (student, cid))
     conn.commit()
@@ -207,7 +204,7 @@ def offline_student(student, cid):
 
 # ========== 记录 ==========
 def add_record(student, cid, tid, cmd, ok, out):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
                  VALUES (?,?,?,?,?,?,?)''',
@@ -216,7 +213,7 @@ def add_record(student, cid, tid, cmd, ok, out):
     conn.close()
 
 def get_records_by_class_student(cid, student):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute('''SELECT t.title, r.command, r.is_ok, r.output, r.timestamp
                  FROM records r LEFT JOIN tasks t ON r.task_id=t.id
@@ -226,7 +223,7 @@ def get_records_by_class_student(cid, student):
     return rows
 
 def get_records_by_class(cid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute('''SELECT r.student, t.title, r.command, r.is_ok, r.output, r.timestamp
                  FROM records r LEFT JOIN tasks t ON r.task_id=t.id
@@ -236,7 +233,7 @@ def get_records_by_class(cid):
     return rows
 
 def get_students_by_class(cid):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("SELECT DISTINCT student FROM records WHERE class_id=?", (cid,))
     rows = c.fetchall()
@@ -244,7 +241,7 @@ def get_students_by_class(cid):
     return [r[0] for r in rows]
 
 def clear_student_record(cid, s):
-    conn = sqlite3.connect("jiping.db")
+    conn = sqlite3.connect("jiping.db", timeout=5)
     c = conn.cursor()
     c.execute("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
     conn.commit()
