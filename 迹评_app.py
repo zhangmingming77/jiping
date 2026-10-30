@@ -11,45 +11,52 @@ _MERMAID_JS_CACHE = ""
 
 def _load_mermaid_js():
     global _MERMAID_JS_CACHE
-    if _MERMAID_JS_CACHE:
-        return _MERMAID_JS_CACHE
+    if _MERMAID_JS_CACHE: return _MERMAID_JS_CACHE
     p = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "static", "mermaid.min.js")
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            _MERMAID_JS_CACHE = f.read()
-    except Exception:
-        _MERMAID_JS_CACHE = ""
+        with open(p, "r", encoding="utf-8") as f: _MERMAID_JS_CACHE = f.read()
+    except: _MERMAID_JS_CACHE = ""
     return _MERMAID_JS_CACHE
 
-def render_mermaid(code: str, height: int = 420):
-    if not code or not code.strip():
-        return
-    escaped = _html.escape(code)
-    js = _load_mermaid_js()
-    components.html(
-        f"""<div style="background:#ffffff;padding:14px;border-radius:10px;">
-        <pre class="mermaid" style="font-size:14px;">{escaped}</pre></div>
-        <script>{js}</script>
-        <script>try{{mermaid.initialize({{startOnLoad:true,theme:'default',securityLevel:'loose'}});}}catch(e){{}}</script>""",
-        height=height)
+def render_mermaid(code, height=420):
+    if not code or not code.strip(): return
+    escaped = _html.escape(code); js = _load_mermaid_js()
+    components.html(f"""<div style="background:#fff;padding:14px;border-radius:10px;">
+<pre class="mermaid" style="font-size:14px;">{escaped}</pre></div>
+<script>{js}</script>
+<script>try{{mermaid.initialize({{startOnLoad:true,theme:'default',securityLevel:'loose'}});}}catch(e){{}}</script>""", height=height)
 
 def _ensure_column(c, table, col, ddl):
     cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})")]
-    if col not in cols:
-        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    if col not in cols: c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
 
 def init_db():
-    conn = sqlite3.connect("jiping.db")
-    c = conn.cursor()
+    conn = sqlite3.connect("jiping.db"); c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, content TEXT, mermaid_graph TEXT, create_time TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS records (id INTEGER PRIMARY KEY AUTOINCREMENT, student TEXT, task_id INTEGER, command TEXT, is_ok INTEGER, output TEXT, timestamp TEXT, FOREIGN KEY(task_id) REFERENCES tasks(id))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS online (student TEXT PRIMARY KEY, last_seen TEXT)''')
     _ensure_column(c, "tasks", "env", "TEXT DEFAULT 'vrp'")
     conn.commit(); conn.close()
 
+def touch_online(student):
+    conn = sqlite3.connect("jiping.db"); c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO online (student, last_seen) VALUES (?,?)", (student, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit(); conn.close()
+
+def get_online_students():
+    conn = sqlite3.connect("jiping.db"); c = conn.cursor()
+    c.execute("SELECT student, last_seen FROM online"); rows = c.fetchall(); conn.close()
+    online = []
+    for name, ts in rows:
+        try:
+            diff = (datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")).total_seconds()
+            if diff < 300: online.append((name, ts))
+        except: pass
+    return online
+
 def add_task(title, content, graph, env="vrp"):
     conn = sqlite3.connect("jiping.db"); c = conn.cursor()
-    c.execute("INSERT INTO tasks (title, content, mermaid_graph, create_time, env) VALUES (?,?,?,?,?)",
-              (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env))
+    c.execute("INSERT INTO tasks (title, content, mermaid_graph, create_time, env) VALUES (?,?,?,?,?)", (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env))
     conn.commit(); conn.close()
 
 def get_all_tasks():
@@ -57,14 +64,13 @@ def get_all_tasks():
     c.execute("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks ORDER BY id DESC")
     rows = c.fetchall(); conn.close(); return rows
 
-def del_task(task_id):
+def del_task(tid):
     conn = sqlite3.connect("jiping.db"); c = conn.cursor()
-    c.execute("DELETE FROM tasks WHERE id=?", (task_id,)); conn.commit(); conn.close()
+    c.execute("DELETE FROM tasks WHERE id=?", (tid,)); conn.commit(); conn.close()
 
-def add_record(student, task_id, cmd, is_ok, out):
+def add_record(student, tid, cmd, ok, out):
     conn = sqlite3.connect("jiping.db"); c = conn.cursor()
-    c.execute("INSERT INTO records (student, task_id, command, is_ok, output, timestamp) VALUES (?,?,?,?,?,?)",
-              (student, task_id, 1 if is_ok else 0, out, datetime.now().strftime("%H:%M:%S")))
+    c.execute("INSERT INTO records (student, task_id, command, is_ok, output, timestamp) VALUES (?,?,?,?,?,?)", (student, tid, 1 if ok else 0, out, datetime.now().strftime("%H:%M:%S")))
     conn.commit(); conn.close()
 
 def get_records(student=None):
@@ -80,61 +86,50 @@ def get_students():
     c.execute("SELECT DISTINCT student FROM records"); rows = c.fetchall(); conn.close()
     return [r[0] for r in rows]
 
-def clear_student_record(student):
+def clear_student_record(s):
     conn = sqlite3.connect("jiping.db"); c = conn.cursor()
-    c.execute("DELETE FROM records WHERE student=?", (student,)); conn.commit(); conn.close()
+    c.execute("DELETE FROM records WHERE student=?", (s,)); conn.commit(); conn.close()
 
-ENV_LABEL = {"vrp": "🌐 VRP网络(ENSP)", "linux": "🐧 Linux(CentOS)", "sql": "🗄️ 数据库(MySQL)"}
+ENV_LABEL = {"vrp": "🌐 VRP网络", "linux": "🐧 Linux", "sql": "🗄️ 数据库"}
 ENV_PROMPT = {"vrp": "<Huawei>", "linux": "[student@localhost ~]$", "sql": "mysql>"}
-ENV_ERROR = {"vrp": "Error:Unrecognized command found at '^' position.", "linux": "-bash: 未找到该命令，请检查拼写", "sql": "ERROR 1064 (42000): 你的SQL语法有错误，请检查手册"}
+ENV_ERROR = {"vrp": "Error:Unrecognized command.", "linux": "-bash: command not found", "sql": "ERROR 1064: SQL syntax error"}
 
-def vrp_simulator(cmd):
-    cmd_low = cmd.strip().lower()
-    m = {"sys": "Enter system view, return user view with Ctrl+Z.", "system-view": "Enter system view, return user view with Ctrl+Z.", "q": "Return to user view", "quit": "Return to user view",
-        "display ip interface brief": "*down: administratively down\n^down: standby\nInterface    IP/Mask      Physical  Protocol\nGE0/0/0      192.168.1.1/24  up     up\nGE0/0/1      unassigned     down   down",
-        "display vlan": "VLAN ID Type  Status  Ports\n1       static active GE0/0/1\n10      static active GE0/0/0",
-        "vlan 10": "Info: VLAN 10 has been created.", "interface g0/0/0": "GigabitEthernet0/0/0",
-        "interface gigabitethernet 0/0/0": "GigabitEthernet0/0/0",
-        "ip address 192.168.1.1 255.255.255.0": "Info: The IP address has been configured successfully.",
-        "ospf 1 router-id 1.1.1.1": "Info: OSPF process 1 started.", "area 0": "Enter OSPF area 0 view",
-        "network 192.168.1.0 0.0.0.255": "Info: Network added to OSPF area 0.",
-        "display ospf peer": "OSPF Process 1 with Router ID 1.1.1.1\n Area 0.0.0.0\n Router ID: 2.2.2.2  State: Full",
-        "vrrp vrid 1 virtual-ip 192.168.1.254": "Info: VRRP group 1 created.",
-        "save": "Info: Save configuration successfully."}
-    return (True, m[cmd_low]) if cmd_low in m else (False, ENV_ERROR["vrp"])
+def vrp_sim(cmd):
+    m = {"system-view": "Enter system view", "sys": "Enter system view", "q": "Return to user view",
+        "display ip interface brief": "GE0/0/0  192.168.1.1/24  up  up", "display vlan": "VLAN1  GE0/0/1\nVLAN10 GE0/0/0",
+        "vlan 10": "VLAN 10 created", "interface g0/0/0": "GigabitEthernet0/0/0",
+        "ip address 192.168.1.1 255.255.255.0": "IP configured", "ospf 1 router-id 1.1.1.1": "OSPF started",
+        "area 0": "Enter Area 0", "network 192.168.1.0 0.0.0.255": "Network added",
+        "display ospf peer": "Router ID: 2.2.2.2  State: Full", "vrrp vrid 1 virtual-ip 192.168.1.254": "VRRP group created",
+        "save": "Save OK"}
+    k = cmd.strip().lower()
+    return (True, m[k]) if k in m else (False, ENV_ERROR["vrp"])
 
-def linux_simulator(cmd):
-    raw = cmd.strip(); cl = raw.lower().rstrip("/").strip()
+def linux_sim(cmd):
+    cl = cmd.strip().lower()
     s = cl[5:].strip() if cl.startswith("sudo ") else cl
-    m = {"pwd": "/home/student", "whoami": "student", "hostname": "localhost.localdomain",
-        "ls": "Desktop Documents Downloads Music Pictures Public Templates Videos",
-        "cat /etc/os-release": 'NAME="CentOS Linux"\nVERSION="7 (Core)"\nPRETTY_NAME="CentOS Linux 7 (Core)"',
-        "ip addr": "ens33: inet 192.168.1.10/24\nlo: inet 127.0.0.1/8",
-        "ip a": "ens33: inet 192.168.1.10/24\nlo: inet 127.0.0.1/8",
-        "ping 192.168.1.1 -c 3": "PING 192.168.1.1\n3 packets transmitted, 3 received, 0% packet loss",
-        "systemctl status network": "Active: active (exited)", "firewall-cmd --state": "running",
-        "netstat -tlnp": "tcp  0.0.0.0:22  LISTEN  sshd", "yum install -y vim": "Complete!"}
+    m = {"pwd": "/home/student", "whoami": "student", "ls": "Desktop Documents Downloads",
+        "cat /etc/os-release": 'CentOS Linux 7 (Core)', "ip addr": "ens33: 192.168.1.10/24",
+        "ping 192.168.1.1 -c 3": "3 received, 0% loss", "firewall-cmd --state": "running",
+        "systemctl status network": "active", "netstat -tlnp": "0.0.0.0:22 sshd"}
     return (True, m[s]) if s in m else (False, ENV_ERROR["linux"])
 
-def sql_simulator(cmd):
-    key = cmd.strip().lower().rstrip(";").strip()
-    m = {"show databases": "+--------------------+\n| Database |\n+--------------------+\n| test |\n+--------------------+",
-        "use test": "Database changed", "show tables": "+----------------+\n| Tables_in_test |\n+----------------+\n| students |\n+----------------+",
-        "select * from students": "+----+--------+------+\n| id | name | age |\n+----+--------+------+\n| 1 | 张三 | 19 |\n| 2 | 李四 | 20 |\n+----+--------+------+",
-        "desc students": "+-------+-------------+\n| Field | Type |\n+-------+-------------+\n| id | int |\n| name | varchar(20) |\n+-------+-------------+",
-        "exit": "Bye"}
-    return (True, m[key]) if key in m else (False, ENV_ERROR["sql"])
+def sql_sim(cmd):
+    k = cmd.strip().lower().rstrip(";").strip()
+    m = {"show databases": "test", "use test": "Database changed", "show tables": "students",
+        "select * from students": "1 张三 19\n2 李四 20", "desc students": "id int\nname varchar(20)", "exit": "Bye"}
+    return (True, m[k]) if k in m else (False, ENV_ERROR["sql"])
 
 def simulate(env, cmd):
-    if env == "linux": return linux_simulator(cmd)
-    if env == "sql": return sql_simulator(cmd)
-    return vrp_simulator(cmd)
+    if env == "linux": return linux_sim(cmd)
+    if env == "sql": return sql_sim(cmd)
+    return vrp_sim(cmd)
 
 DEFAULT_CONTENT = {
-    "vrp": "1. 进入系统视图\n2. 配置IP\n3. 启动OSPF\n4. 宣告网段",
+    "vrp": "1. system-view\n2. interface g0/0/0\n3. ip address 192.168.1.1 255.255.255.0\n4. ospf 1 router-id 1.1.1.1",
     "linux": "1. cat /etc/os-release\n2. ip addr\n3. ping 192.168.1.1 -c 3\n4. firewall-cmd --state",
     "sql": "1. show databases;\n2. use test;\n3. show tables;\n4. select * from students;"}
-DEFAULT_MERMAID = "graph LR\n    R1[R1] --- GE0/0/0\n    GE0/0/0 --- LINK{{链路}}\n    LINK --- GE0/0/1\n    GE0/0/1 --- R2[R2]\n    style R1 fill:#87CEFA\n    style R2 fill:#87CEFA"
+DEFAULT_MERMAID = "graph LR\n    R1[R1] --- GE0/0/0\n    GE0/0/0 --- LINK{{链路}}\n    LINK --- GE0/0/1\n    GE0/0/1 --- R2[R2]\n    style R1 fill:#87CEFA"
 
 st.set_page_config(page_title="迹评", page_icon="🌊", layout="wide")
 init_db()
@@ -145,98 +140,88 @@ if not st.session_state.entered:
     st.markdown("<h1 style='text-align:center;font-size:60px;'>🌊 迹评</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align:center;color:#888;'>EVERY STEP COUNTS</h3>", unsafe_allow_html=True)
     st.markdown("<br><br>", unsafe_allow_html=True)
-    c1,c2,c3 = st.columns([1,1,1])
+    _, c2, _ = st.columns([1,1,1])
     with c2:
         if st.button("进 入", use_container_width=True, type="primary"):
             st.session_state.entered = True; st.rerun()
     st.stop()
 
-TEACHER_PASSWORD = "123456"
 st.sidebar.title("迹评 EVERY STEP COUNTS")
 role = st.sidebar.radio("选择身份", ["学生端", "老师端"])
 if role == "老师端":
     pwd = st.sidebar.text_input("老师密码", type="password")
-    if pwd != TEACHER_PASSWORD:
-        st.sidebar.warning("请输入正确密码"); st.stop()
+    if pwd != "123456": st.sidebar.warning("密码错误"); st.stop()
 
 if role == "学生端":
     st.title("学生实操练习")
     if "student_name" not in st.session_state or not st.session_state.student_name:
-        st.subheader("请输入你的姓名开始")
+        st.subheader("请输入姓名")
         ni = st.text_input("姓名", placeholder="输入你的名字")
         if st.button("进入", type="primary"):
-            if ni.strip():
-                st.session_state.student_name = ni.strip(); st.rerun()
+            if ni.strip(): st.session_state.student_name = ni.strip(); st.rerun()
             else: st.warning("请输入姓名")
         st.stop()
-    student_name = st.session_state.student_name
-    st.caption(f"当前学生：{student_name}")
-    if st.button("切换学生"):
-        del st.session_state.student_name; st.rerun()
-    task_list = get_all_tasks()
-    if not task_list:
-        st.warning("⚠️ 当前暂无任务，请等待老师发布任务！")
+    sn = st.session_state.student_name
+    touch_online(sn)
+    st.caption(f"当前学生：{sn}")
+    if st.button("切换学生"): del st.session_state.student_name; st.rerun()
+    tasks = get_all_tasks()
+    if not tasks: st.warning("暂无任务")
     else:
-        task_options = {f"[{ENV_LABEL.get(r[5],r[5])}] {r[1]}": r for r in task_list}
-        selected_name = st.selectbox("选择任务", list(task_options.keys()))
-        row = task_options[selected_name]
-        tid, title, content, graph_code, ctime, env = row
+        opts = {f"[{ENV_LABEL.get(r[5],r[5])}] {r[1]}": r for r in tasks}
+        sel = st.selectbox("选择任务", list(opts.keys()))
+        row = opts[sel]; tid, title, content, graph, ctime, env = row
         st.subheader(f"📋 {title}  `{ENV_LABEL.get(env,env)}`")
         st.markdown(content)
-        if env == "vrp" and graph_code and graph_code.strip():
-            st.markdown("---"); st.subheader("🗺️ 拓扑图"); render_mermaid(graph_code)
-        st.markdown("---"); st.subheader(f"💻 终端（{ENV_LABEL.get(env,env)}）")
-        cmd = st.text_input(ENV_PROMPT.get(env,">"), key="term_cmd")
+        if env=="vrp" and graph and graph.strip(): render_mermaid(graph)
+        st.markdown("---"); st.subheader(f"💻 终端")
+        cmd = st.text_input(ENV_PROMPT.get(env,">"), key="tc")
         if cmd.strip():
-            ok, out = simulate(env, cmd); add_record(student_name, tid, cmd, ok, out)
+            ok, out = simulate(env, cmd); add_record(sn, tid, cmd, ok, out)
             st.code(f"{ENV_PROMPT.get(env,'>')} {cmd}", language="bash")
-            st.success(out if out else "执行成功") if ok else st.error(out)
-        st.markdown("---"); st.subheader("📝 你的操作记录")
-        records = get_records(student_name)
-        if records:
-            for tn, c2, ok, out, ts in records:
-                st.markdown(f"{'🟢' if ok else '🔴'} `{ts}` 【{tn}】 `{c2}`"); st.code(out)
-            if st.button("清空我的记录"):
-                clear_student_record(student_name); st.rerun()
-        else: st.info("还没有操作记录")
+            st.success(out if out else "OK") if ok else st.error(out)
+        st.markdown("---"); st.subheader("📝 我的记录")
+        recs = get_records(sn)
+        if recs:
+            for tn, c2, ok, out, ts in recs:
+                st.markdown(f"{'🟢' if ok else '🔴'} `{ts}` 【{tn}】`{c2}`"); st.code(out)
+            if st.button("清空我的记录"): clear_student_record(sn); st.rerun()
+        else: st.info("暂无记录")
 else:
     st.title("老师管理后台")
-    tab1, tab2 = st.tabs(["📤 发布新任务", "📊 学情查看"])
-    with tab1:
-        st.subheader("新建实操任务")
-        env = st.selectbox("实操环境", ["vrp","linux","sql"], format_func=lambda x: ENV_LABEL[x])
-        task_title = st.text_input("任务名称", value={"vrp":"OSPF配置","linux":"CentOS网络检查","sql":"MySQL查询练习"}[env], key=f"t_{env}")
-        task_content = st.text_area("任务要求", value=DEFAULT_CONTENT[env], height=160, key=f"c_{env}")
-        mermaid_graph = ""
-        if env == "vrp":
-            mermaid_graph = st.text_area("Mermaid拓扑代码", value=DEFAULT_MERMAID, height=180, key=f"m_{env}")
-        if st.button("✅ 发布任务"):
-            if task_title.strip():
-                add_task(task_title.strip(), task_content, mermaid_graph.strip(), env)
-                st.success("发布成功"); st.rerun()
-            else: st.error("任务名称不能为空")
-        st.markdown("---"); st.subheader("已发布任务")
-        allt = get_all_tasks()
-        if allt:
-            for tid, title, content, graph, ctime, tenv in allt:
-                with st.expander(f"【{ctime}】{ENV_LABEL.get(tenv,tenv)} {title}"):
-                    st.markdown(content)
-                    if tenv=="vrp" and graph: render_mermaid(graph)
-                    if st.button("🗑 删除", key=f"d{tid}"): del_task(tid); st.rerun()
-    with tab2:
-        st.subheader("学生操作记录")
+    t1, t2 = st.tabs(["📤 发布任务", "📊 学情查看"])
+    with t1:
+        env = st.selectbox("环境", ["vrp","linux","sql"], format_func=lambda x: ENV_LABEL[x])
+        tt = st.text_input("任务名称", key=f"t_{env}")
+        tc = st.text_area("任务要求", value=DEFAULT_CONTENT[env], height=150, key=f"c_{env}")
+        mg = ""
+        if env=="vrp": mg = st.text_area("Mermaid拓扑", value=DEFAULT_MERMAID, height=150, key=f"m_{env}")
+        if st.button("✅ 发布"):
+            if tt.strip(): add_task(tt.strip(), tc, mg.strip(), env); st.success("成功"); st.rerun()
+            else: st.error("名称不能为空")
+        st.markdown("---")
+        for tid, title, content, graph, ctime, tenv in get_all_tasks():
+            with st.expander(f"【{ctime}】{ENV_LABEL.get(tenv,tenv)} {title}"):
+                st.markdown(content)
+                if tenv=="vrp" and graph: render_mermaid(graph)
+                if st.button("🗑 删除", key=f"d{tid}"): del_task(tid); st.rerun()
+    with t2:
+        on = get_online_students()
+        if on: st.success(f"🟢 在线 {len(on)} 人：{', '.join(n for n,_ in on)}")
+        else: st.info("⚪ 暂无学生在线")
+        st.subheader("学生记录")
         students = get_students()
-        if not students: st.warning("暂无学生记录")
+        if not students: st.warning("暂无学生")
         else:
             stu = st.selectbox("选择学生", students)
-            records = get_records(stu)
-            total = len(records); err = sum(1 for r in records if r[2]==0)
+            recs = get_records(stu)
+            total = len(recs); err = sum(1 for r in recs if r[2]==0)
             rate = round((total-err)/total*100,1) if total>0 else 0
-            c1,c2,c3 = st.columns(3)
-            c1.metric("总步数", total); c2.metric("报错", err); c3.metric("正确率", f"{rate}%")
+            a,b,c = st.columns(3)
+            a.metric("总步数", total); b.metric("报错", err); c.metric("正确率", f"{rate}%")
             st.markdown("---")
-            for tn, cmd, ok, out, ts in records:
+            for tn, cmd, ok, out, ts in recs:
                 st.markdown(f"{'🟢' if ok else '🔴'} `{ts}` 【{tn}】`{cmd}`"); st.code(out)
-            df = pd.DataFrame(records, columns=["任务","命令","成功","输出","时间"])
-            st.download_button("📥导出CSV", df.to_csv(index=False,encoding="utf-8-sig"), f"{stu}_记录.csv")
-            if st.button("🗑清空该学生"): clear_student_record(stu); st.rerun()
+            df = pd.DataFrame(recs, columns=["任务","命令","成功","输出","时间"])
+            st.download_button("📥导出CSV", df.to_csv(index=False,encoding="utf-8-sig"), f"{stu}.csv")
+            if st.button("🗑清空"): clear_student_record(stu); st.rerun()
