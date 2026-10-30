@@ -32,13 +32,7 @@ def render_mermaid(code, height=420):
 <script>{js}</script>
 <script>try{{mermaid.initialize({{startOnLoad:true,theme:'default',securityLevel:'loose'}});}}catch(e){{}}</script>""", height=height)
 
-def _ensure_column(c, table, col, ddl):
-    cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})")]
-    if col not in cols:
-        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
-
 def run_sql_with_retry(fn, retry=5, delay=0.25):
-    """数据库写入重试包装，专门对付sqlite锁"""
     for i in range(retry):
         try:
             return fn()
@@ -46,18 +40,21 @@ def run_sql_with_retry(fn, retry=5, delay=0.25):
             time.sleep(delay)
     return None
 
+def get_conn():
+    conn = sqlite3.connect("jiping.db", timeout=5, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=DELETE;")
+    return conn
+
 def init_db():
     def _init():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("PRAGMA foreign_keys = OFF;")
-        # 教师表
         c.execute('''CREATE TABLE IF NOT EXISTS teachers (
             username TEXT PRIMARY KEY,
             password TEXT NOT NULL,
             create_time TEXT
         )''')
-        # 班级表
         c.execute('''CREATE TABLE IF NOT EXISTS classes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             class_name TEXT NOT NULL,
@@ -65,7 +62,6 @@ def init_db():
             create_time TEXT,
             UNIQUE(class_name, teacher)
         )''')
-        # 任务表
         c.execute('''CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -75,7 +71,6 @@ def init_db():
             env TEXT DEFAULT 'vrp',
             class_id INTEGER
         )''')
-        # 学生实操记录
         c.execute('''CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student TEXT,
@@ -90,10 +85,10 @@ def init_db():
         conn.close()
     run_sql_with_retry(_init)
 
-# ========== 教师相关 ==========
+# ========== 教师 ==========
 def teacher_register(username, pwd):
     def _reg():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("INSERT INTO teachers (username, password, create_time) VALUES (?,?,?)",
                   (username, pwd, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -107,7 +102,7 @@ def teacher_register(username, pwd):
 
 def teacher_login(username, pwd):
     def _login():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT 1 FROM teachers WHERE username=? AND password=?", (username, pwd))
         row = c.fetchone()
@@ -115,10 +110,10 @@ def teacher_login(username, pwd):
         return row is not None
     return run_sql_with_retry(_login)
 
-# ========== 班级相关 ==========
+# ========== 班级 ==========
 def create_class(class_name, teacher):
     def _create():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("INSERT INTO classes (class_name, teacher, create_time) VALUES (?,?,?)",
                   (class_name, teacher, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -132,7 +127,7 @@ def create_class(class_name, teacher):
 
 def get_teacher_classes(teacher):
     def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT id, class_name FROM classes WHERE teacher=?", (teacher,))
         rows = c.fetchall()
@@ -142,7 +137,7 @@ def get_teacher_classes(teacher):
 
 def get_class_by_id(cid):
     def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT id, class_name, teacher FROM classes WHERE id=?", (cid,))
         r = c.fetchone()
@@ -152,7 +147,7 @@ def get_class_by_id(cid):
 
 def get_all_class_ids_names():
     def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT id, class_name FROM classes")
         rows = c.fetchall()
@@ -163,7 +158,7 @@ def get_all_class_ids_names():
 # ========== 任务 ==========
 def add_task(title, content, graph, env, class_id):
     def _add():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute('''INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
                      VALUES (?,?,?,?,?,?)''',
@@ -174,7 +169,7 @@ def add_task(title, content, graph, env, class_id):
 
 def get_tasks_by_class(cid):
     def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks WHERE class_id=? ORDER BY id DESC", (cid,))
         rows = c.fetchall()
@@ -184,7 +179,7 @@ def get_tasks_by_class(cid):
 
 def del_task(tid):
     def _del():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("DELETE FROM tasks WHERE id=?", (tid,))
         conn.commit()
@@ -194,7 +189,7 @@ def del_task(tid):
 # ========== 记录 ==========
 def add_record(student, cid, tid, cmd, ok, out):
     def _add():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
                      VALUES (?,?,?,?,?,?,?)''',
@@ -205,7 +200,7 @@ def add_record(student, cid, tid, cmd, ok, out):
 
 def get_records_by_class_student(cid, student):
     def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute('''SELECT t.title, r.command, r.is_ok, r.output, r.timestamp
                      FROM records r LEFT JOIN tasks t ON r.task_id=t.id
@@ -215,21 +210,9 @@ def get_records_by_class_student(cid, student):
         return rows
     return run_sql_with_retry(_get) or []
 
-def get_records_by_class(cid):
-    def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
-        c = conn.cursor()
-        c.execute('''SELECT r.student, t.title, r.command, r.is_ok, r.output, r.timestamp
-                     FROM records r LEFT JOIN tasks t ON r.task_id=t.id
-                     WHERE r.class_id=? ORDER BY r.id''', (cid,))
-        rows = c.fetchall()
-        conn.close()
-        return rows
-    return run_sql_with_retry(_get) or []
-
 def get_students_by_class(cid):
     def _get():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT DISTINCT student FROM records WHERE class_id=?", (cid,))
         rows = c.fetchall()
@@ -239,14 +222,14 @@ def get_students_by_class(cid):
 
 def clear_student_record(cid, s):
     def _clear():
-        conn = sqlite3.connect("jiping.db", timeout=5)
+        conn = get_conn()
         c = conn.cursor()
         c.execute("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
         conn.commit()
         conn.close()
     run_sql_with_retry(_clear)
 
-# ========== 模拟器部分 ==========
+# ========== 模拟器 ==========
 ENV_LABEL = {"vrp": "🌐 VRP网络(ENSP)", "linux": "🐧 Linux(CentOS)", "sql": "🗄️ 数据库(MySQL)"}
 ENV_PROMPT = {"vrp": "<Huawei>", "linux": "[student@localhost ~]$", "sql": "mysql>"}
 ENV_ERROR = {"vrp": "Error:Unrecognized command found at '^' position.", "linux": "-bash: 未找到该命令", "sql": "ERROR 1064: SQL语法错误"}
