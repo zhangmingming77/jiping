@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import streamlit.components.v1 as components
-import sqlite3
+import sqlite3  # 保留标准库，用于 OperationalError / IntegrityError 异常判断
+import libsql_experimental  # 连接 Turso 云端数据库
 from datetime import datetime
 import pandas as pd
 import html as _html
@@ -41,15 +42,18 @@ def run_sql_with_retry(fn, retry=5, delay=0.25):
     return None
 
 def get_conn():
-    conn = sqlite3.connect("jiping.db", timeout=5, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=DELETE;")
-    return conn
+    # 从 Streamlit Secrets 读取 Turso 连接信息（本地调试时也可从环境变量读）
+    url = st.secrets.get("TURSO_URL") or _os.environ.get("TURSO_URL")
+    token = st.secrets.get("TURSO_AUTH_TOKEN") or _os.environ.get("TURSO_AUTH_TOKEN")
+    if not url:
+        st.error("请先在 Streamlit Cloud 的 Settings → Secrets 里配置 TURSO_URL 和 TURSO_AUTH_TOKEN")
+        st.stop()
+    return libsql_experimental.connect(url, auth_token=token)
 
 def init_db():
     def _init():
         conn = get_conn()
         c = conn.cursor()
-        c.execute("PRAGMA foreign_keys = OFF;")
         c.execute('''CREATE TABLE IF NOT EXISTS teachers (
             username TEXT PRIMARY KEY,
             password TEXT NOT NULL,
