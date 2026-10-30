@@ -37,191 +37,163 @@ def _ensure_column(c, table, col, ddl):
     if col not in cols:
         c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
 
+def run_sql_with_retry(fn, retry=5, delay=0.25):
+    """数据库写入重试包装，专门对付sqlite锁"""
+    for i in range(retry):
+        try:
+            return fn()
+        except sqlite3.OperationalError:
+            time.sleep(delay)
+    return None
+
 def init_db():
-    conn = sqlite3.connect("jiping.db")
-    c = conn.cursor()
-    c.execute("PRAGMA foreign_keys = OFF;")
-    # 教师表
-    c.execute('''CREATE TABLE IF NOT EXISTS teachers (
-        username TEXT PRIMARY KEY,
-        password TEXT NOT NULL,
-        create_time TEXT
-    )''')
-    # 班级表
-    c.execute('''CREATE TABLE IF NOT EXISTS classes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        class_name TEXT NOT NULL,
-        teacher TEXT NOT NULL,
-        create_time TEXT,
-        UNIQUE(class_name, teacher)
-    )''')
-    # 任务表
-    c.execute('''CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        content TEXT,
-        mermaid_graph TEXT,
-        create_time TEXT,
-        env TEXT DEFAULT 'vrp',
-        class_id INTEGER
-    )''')
-    # 学生实操记录
-    c.execute('''CREATE TABLE IF NOT EXISTS records (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student TEXT,
-        class_id INTEGER,
-        task_id INTEGER,
-        command TEXT,
-        is_ok INTEGER,
-        output TEXT,
-        timestamp TEXT
-    )''')
-    # 在线表
-    c.execute('''CREATE TABLE IF NOT EXISTS online (
-        student TEXT,
-        class_id INTEGER,
-        last_seen TEXT,
-        PRIMARY KEY(student, class_id)
-    )''')
-    conn.commit()
-    conn.close()
+    def _init():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("PRAGMA foreign_keys = OFF;")
+        # 教师表
+        c.execute('''CREATE TABLE IF NOT EXISTS teachers (
+            username TEXT PRIMARY KEY,
+            password TEXT NOT NULL,
+            create_time TEXT
+        )''')
+        # 班级表
+        c.execute('''CREATE TABLE IF NOT EXISTS classes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            class_name TEXT NOT NULL,
+            teacher TEXT NOT NULL,
+            create_time TEXT,
+            UNIQUE(class_name, teacher)
+        )''')
+        # 任务表
+        c.execute('''CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT,
+            mermaid_graph TEXT,
+            create_time TEXT,
+            env TEXT DEFAULT 'vrp',
+            class_id INTEGER
+        )''')
+        # 学生实操记录
+        c.execute('''CREATE TABLE IF NOT EXISTS records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student TEXT,
+            class_id INTEGER,
+            task_id INTEGER,
+            command TEXT,
+            is_ok INTEGER,
+            output TEXT,
+            timestamp TEXT
+        )''')
+        conn.commit()
+        conn.close()
+    run_sql_with_retry(_init)
 
 # ========== 教师相关 ==========
 def teacher_register(username, pwd):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    try:
+    def _reg():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
         c.execute("INSERT INTO teachers (username, password, create_time) VALUES (?,?,?)",
                   (username, pwd, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        conn.close()
         return True
+    try:
+        return run_sql_with_retry(_reg)
     except sqlite3.IntegrityError:
         return False
-    finally:
-        conn.close()
 
 def teacher_login(username, pwd):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM teachers WHERE username=? AND password=?", (username, pwd))
-    row = c.fetchone()
-    conn.close()
-    return row is not None
+    def _login():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM teachers WHERE username=? AND password=?", (username, pwd))
+        row = c.fetchone()
+        conn.close()
+        return row is not None
+    return run_sql_with_retry(_login)
 
 # ========== 班级相关 ==========
 def create_class(class_name, teacher):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    try:
+    def _create():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
         c.execute("INSERT INTO classes (class_name, teacher, create_time) VALUES (?,?,?)",
                   (class_name, teacher, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        conn.close()
         return True
+    try:
+        return run_sql_with_retry(_create)
     except sqlite3.IntegrityError:
         return False
-    finally:
-        conn.close()
 
 def get_teacher_classes(teacher):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT id, class_name FROM classes WHERE teacher=?", (teacher,))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("SELECT id, class_name FROM classes WHERE teacher=?", (teacher,))
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    return run_sql_with_retry(_get) or []
 
 def get_class_by_id(cid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT id, class_name, teacher FROM classes WHERE id=?", (cid,))
-    r = c.fetchone()
-    conn.close()
-    return r
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("SELECT id, class_name, teacher FROM classes WHERE id=?", (cid,))
+        r = c.fetchone()
+        conn.close()
+        return r
+    return run_sql_with_retry(_get)
 
 def get_all_class_ids_names():
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT id, class_name FROM classes")
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("SELECT id, class_name FROM classes")
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    return run_sql_with_retry(_get) or []
 
 # ========== 任务 ==========
 def add_task(title, content, graph, env, class_id):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute('''INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
-                 VALUES (?,?,?,?,?,?)''',
-              (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id))
-    conn.commit()
-    conn.close()
+    def _add():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute('''INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
+                     VALUES (?,?,?,?,?,?)''',
+                  (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id))
+        conn.commit()
+        conn.close()
+    run_sql_with_retry(_add)
 
 def get_tasks_by_class(cid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks WHERE class_id=? ORDER BY id DESC", (cid,))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("SELECT id, title, content, mermaid_graph, create_time, env FROM tasks WHERE class_id=? ORDER BY id DESC", (cid,))
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    return run_sql_with_retry(_get) or []
 
 def del_task(tid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("DELETE FROM tasks WHERE id=?", (tid,))
-    conn.commit()
-    conn.close()
-
-# ========== 在线【重点修复】限流+捕获异常，失败不炸页面 ==========
-def touch_online(student, class_id):
-    now_ts = time.time()
-    # 会话里记录上次上报时间，30秒最多写一次数据库
-    if "last_touch_time" not in st.session_state:
-        st.session_state.last_touch_time = 0
-    if now_ts - st.session_state.last_touch_time < 30:
-        return
-    try:
+    def _del():
         conn = sqlite3.connect("jiping.db", timeout=5)
         c = conn.cursor()
-        c.execute("PRAGMA journal_mode=WAL;")
-        c.execute("PRAGMA busy_timeout=5000;")
-        c.execute("INSERT OR REPLACE INTO online (student, class_id, last_seen) VALUES (?,?,?)",
-                  (student, class_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        c.execute("DELETE FROM tasks WHERE id=?", (tid,))
         conn.commit()
         conn.close()
-        st.session_state.last_touch_time = now_ts
-    except Exception:
-        # 锁库、写入失败直接静默跳过，不抛出报错
-        pass
-
-def get_online_students_by_class(cid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT student, last_seen FROM online WHERE class_id=?", (cid,))
-    rows = c.fetchall()
-    conn.close()
-    online = []
-    for name, ts in rows:
-        try:
-            diff = (datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")).total_seconds()
-            if diff < 300:
-                online.append((name, ts))
-        except:
-            pass
-    return online
-
-def offline_student(student, cid):
-    try:
-        conn = sqlite3.connect("jiping.db", timeout=5)
-        c = conn.cursor()
-        c.execute("DELETE FROM online WHERE student=? AND class_id=?", (student, cid))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
+    run_sql_with_retry(_del)
 
 # ========== 记录 ==========
 def add_record(student, cid, tid, cmd, ok, out):
-    try:
+    def _add():
         conn = sqlite3.connect("jiping.db", timeout=5)
         c = conn.cursor()
         c.execute('''INSERT INTO records (student, class_id, task_id, command, is_ok, output, timestamp)
@@ -229,46 +201,50 @@ def add_record(student, cid, tid, cmd, ok, out):
                   (student, cid, tid, cmd, 1 if ok else 0, out, datetime.now().strftime("%H:%M:%S")))
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    run_sql_with_retry(_add)
 
 def get_records_by_class_student(cid, student):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute('''SELECT t.title, r.command, r.is_ok, r.output, r.timestamp
-                 FROM records r LEFT JOIN tasks t ON r.task_id=t.id
-                 WHERE r.student=? AND r.class_id=? ORDER BY r.id''', (student, cid))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute('''SELECT t.title, r.command, r.is_ok, r.output, r.timestamp
+                     FROM records r LEFT JOIN tasks t ON r.task_id=t.id
+                     WHERE r.student=? AND r.class_id=? ORDER BY r.id''', (student, cid))
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    return run_sql_with_retry(_get) or []
 
 def get_records_by_class(cid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute('''SELECT r.student, t.title, r.command, r.is_ok, r.output, r.timestamp
-                 FROM records r LEFT JOIN tasks t ON r.task_id=t.id
-                 WHERE r.class_id=? ORDER BY r.id''', (cid,))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute('''SELECT r.student, t.title, r.command, r.is_ok, r.output, r.timestamp
+                     FROM records r LEFT JOIN tasks t ON r.task_id=t.id
+                     WHERE r.class_id=? ORDER BY r.id''', (cid,))
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    return run_sql_with_retry(_get) or []
 
 def get_students_by_class(cid):
-    conn = sqlite3.connect("jiping.db", timeout=5)
-    c = conn.cursor()
-    c.execute("SELECT DISTINCT student FROM records WHERE class_id=?", (cid,))
-    rows = c.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+    def _get():
+        conn = sqlite3.connect("jiping.db", timeout=5)
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT student FROM records WHERE class_id=?", (cid,))
+        rows = c.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    return run_sql_with_retry(_get) or []
 
 def clear_student_record(cid, s):
-    try:
+    def _clear():
         conn = sqlite3.connect("jiping.db", timeout=5)
         c = conn.cursor()
         c.execute("DELETE FROM records WHERE student=? AND class_id=?", (s, cid))
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    run_sql_with_retry(_clear)
 
 # ========== 模拟器部分 ==========
 ENV_LABEL = {"vrp": "🌐 VRP网络(ENSP)", "linux": "🐧 Linux(CentOS)", "sql": "🗄️ 数据库(MySQL)"}
@@ -437,11 +413,7 @@ if role == "老师端":
         cid_list = [str(x[0]) + " | " + x[1] for x in my_classes]
         sel_c_str = st.selectbox("查看哪个班级学情", cid_list, key="statclass")
         sel_cid = int(sel_c_str.split("|")[0].strip())
-        online = get_online_students_by_class(sel_cid)
-        if online:
-            st.success(f"🟢 在线 {len(online)} 人：{', '.join(n for n,_ in online)}")
-        else:
-            st.info("⚪ 本班暂无学生在线")
+        st.info("在线统计功能已关闭，提升稳定性")
         st.subheader("本班学生记录")
         stu_list = get_students_by_class(sel_cid)
         if not stu_list:
@@ -494,12 +466,9 @@ else:
         st.stop()
     sn = st.session_state.student_name
     scid = st.session_state.student_class_id
-    # 上报在线状态（带限流+异常捕获）
-    touch_online(sn, scid)
     c1, c2 = st.columns([3,1])
     c1.caption(f"当前学生：{sn}｜班级：{get_class_by_id(scid)[1]}")
-    if c2.button("🔴 下机退出"):
-        offline_student(sn, scid)
+    if c2.button("🔴 退出"):
         del st.session_state.student_name
         del st.session_state.student_class_id
         st.rerun()
