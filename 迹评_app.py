@@ -30,11 +30,7 @@ def get_db():
     return _turso
 
 def db_exec(sql, args=None):
-    """执行一条 SQL。
-    返回 (rows, lastid, rowcount)。
-    rows 是 list[tuple]（SELECT 用）；写入时 rows 为空。
-    唯一约束冲突抛 IntegrityError；其他错误抛 RuntimeError。
-    """
+    """执行一条 SQL。返回 (rows, lastid, rowcount)。"""
     db = get_db()
     body = {"requests": [
         {"type": "execute", "stmt": {"sql": sql, "args": args or []}},
@@ -48,7 +44,8 @@ def db_exec(sql, args=None):
         },
         json=body, timeout=30
     )
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(f"Turso 返回 HTTP {r.status_code}: {r.text[:500]}")
     data = r.json()
     item = data["results"][0]
     if "error" in item:
