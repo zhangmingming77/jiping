@@ -67,7 +67,19 @@ def db_exec(sql, args=None):
         st.error(f"SQL 错误：{msg}")
         st.stop()
     res = item.get("response", {}).get("result", {}) or {}
-    rows = [tuple(row) for row in res.get("rows", [])]
+    rows = []
+    for row in res.get("rows", []):
+        cells = []
+        for cell in row:
+            if isinstance(cell, dict) and "value" in cell:
+                v = cell["value"]
+                if cell.get("type") == "integer":
+                    try: v = int(v)
+                    except: pass
+                cells.append(v)
+            else:
+                cells.append(cell)
+        rows.append(tuple(cells))
     lastid = res.get("last_insert_rowid", 0) or 0
     affected = res.get("affected_row_count", 0) or 0
     return rows, lastid, affected
