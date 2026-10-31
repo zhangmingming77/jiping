@@ -1062,6 +1062,150 @@ FIGURES = {
 }
 
 
+# ============================================================
+# ★ 任务配图解析：根据老师写的任务名称/要求，自动挑对应的操作图
+#     纯关键词规则，0 网络、0 延迟（<0.1ms），结果可解释
+#     顺序很重要：越具体的场景越靠前，避免 "VLAN 里提到 OSPF" 被误判
+# ============================================================
+# (图名, [触发词...])  匹配到分数最高者；同分取靠前的
+_FIG_RULES = [
+    # ---- 计算机网络 ----
+    ("ospf",       ["ospf", "动态路由", "路由协议", "area0", "abr", "邻居关系", "路由表"]),
+    ("vlan",       ["vlan", "trunk", "access口", "端口划分", "vlanif", "三层交换", "vlan间"]),
+    ("stp",        ["stp", "生成树", "环路", "阻塞端口", "根桥", "rstp", "mstp"]),
+    ("dhcp",       ["dhcp", "地址池", "自动获取ip", "自动获取地址", "ippool", "租期"]),
+    ("acl",        ["acl", "访问控制", "包过滤", "rule", "deny", "permit", "封禁"]),
+    ("nat",        ["nat", "地址转换", "公网", "私网", "easyip", "端口映射"]),
+    ("switch_basic", ["交换机", "ipaddress", "接口配置", "基础配置", "保存配置", "system-view"]),
+    # ---- Linux ----
+    ("nginx",      ["nginx", "web服务", "站点", "反向代理", "虚拟主机", "80端口", "静态资源"]),
+    ("lnmp",       ["lnmp", "lamp", "部署网站", "整站", "php", "建站", "源码部署"]),
+    ("perm",       ["权限", "chmod", "chown", "777", "755", "属主", "rwx"]),
+    ("shell_flow", ["shell", "脚本", "for语句", "while", "自动化运维", "定时任务"]),
+    ("linux_basic", ["linux", "命令行", "目录", "用户", "进程", "磁盘", "基本命令"]),
+    # ---- 数据库 ----
+    ("join",       ["join", "多表", "关联查询", "连表", "三表", "外键关联"]),
+    ("index",      ["索引", "index", "explain", "执行计划", "慢查询", "性能优化"]),
+    ("txn",        ["事务", "transaction", "commit", "rollback", "回滚", "acid", "并发"]),
+    ("er_student", ["er图", "实体关系", "建模", "表结构设计", "字段设计", "数据库设计", "成绩库", "创建表"]),
+    ("er_simple",  ["建表", "createtable", "数据类型", "主键", "设计表", "单表"]),
+    # ---- Python ----
+    ("crawler",    ["爬虫", "requests", "抓取", "解析html", "beautifulsoup", "采集", "清洗", "去重", "数据清洗"]),
+    ("oop",        ["面向对象", "class", "继承", "封装", "多态", "对象"]),
+    ("algo",       ["算法", "排序", "查找", "复杂度", "递归", "二分"]),
+    ("py_flow",    ["python", "循环", "分支", "函数", "列表", "字典", "编程"]),
+    # ---- 软件工程 ----
+    ("git",        ["git", "版本控制", "分支", "合并", "冲突", "commit", "clone"]),
+    ("tdd",        ["tdd", "单元测试", "测试驱动", "pytest", "断言", "测试用例"]),
+    ("uml",        ["uml", "类图", "用例图", "时序图", "设计类"]),
+    ("scrum",      ["scrum", "敏捷", "迭代", "待办", "sprint", "站会", "看板"]),
+    # ---- 电气自动化 ----
+    ("motor_ctrl", ["电动机", "正反转", "接触器", "互锁", "km1", "km2", "自锁", "点动"]),
+    ("plc_scan",   ["plc", "梯形图", "扫描周期", "定时器", "计数器", "输入输出"]),
+    ("rs485",      ["485", "modbus", "串口", "波特率", "从站", "站号", "通信参数"]),
+    ("pcb",        ["pcb", "布线", "封装", "原理图", "焊盘", "布局"]),
+    ("power_seq",  ["开关电源", "上电", "时序", "smps", "24v", "纹波", "电源模块"]),
+    ("multimeter", ["万用表", "电压档", "电流档", "电阻档", "通断", "蜂鸣", "测量"]),
+    ("circuit",    ["电路", "欧姆定律", "串联", "并联", "基尔霍夫", "电阻", "电流"]),
+    # ---- 数字媒体 ----
+    ("ae_seq",     ["aftereffects", "关键帧", "合成", "动效", "缓动", "表达式", "ae"]),
+    ("pr_flow",    ["premiere", "剪辑", "时间线", "字幕", "导出视频", "转场", "pr"]),
+    ("color",      ["调色", "色轮", "lut", "曲线", "白平衡", "校色"]),
+    ("photo",      ["摄影", "光圈", "快门", "iso", "曝光", "构图", "景深"]),
+    ("threepoint", ["三点布光", "布光", "主光", "辅光", "轮廓光", "打光"]),
+    ("ui",         ["界面设计", "栅格", "配色", "字体", "对比度", "组件", "原型", "ui"]),
+    # ---- 电子商务 ----
+    ("funnel",     ["漏斗", "转化率", "uv", "pv", "加购", "跳失", "流量"]),
+    ("pricing",    ["定价", "毛利", "成本", "售价", "利润", "保本"]),
+    ("supply",     ["库存", "供应链", "补货", "断货", "日销", "交期", "安全库存"]),
+    ("aida",       ["活动", "大促", "策划", "投放", "roi", "预算", "推广"]),
+    ("cashflow",   ["对账", "结算", "佣金", "到账", "退款", "现金流", "gmv"]),
+    ("abc",        ["abc分类", "二八", "重点管理", "品类管理"]),
+]
+
+_FIG_ORDER = list(FIGURES.keys())
+
+# 图名 → 中文说明（老师选图时看得懂）
+_FIG_LABEL = {
+    "switch_basic": "交换机基础配置拓扑", "vlan": "VLAN 划分与 Trunk 链路",
+    "ospf": "OSPF 多区域邻居关系", "stp": "STP 生成树阻塞端口",
+    "dhcp": "DHCP 地址池分配", "acl": "ACL 访问控制匹配", "nat": "NAT 地址转换",
+    "linux_basic": "Linux 命令与系统分层", "nginx": "Nginx 站点服务链路",
+    "perm": "Linux 权限 rwx 模型", "shell_flow": "Shell 脚本执行流程",
+    "lnmp": "LNMP 整站部署链路",
+    "er_student": "学生成绩库 ER 图", "er_simple": "单表建表结构",
+    "join": "多表 JOIN 查询过程", "index": "B+ 树索引与执行计划",
+    "txn": "事务 ACID 与回滚流程",
+    "py_flow": "Python 程序执行流程", "oop": "类 / 继承 / 对象关系",
+    "algo": "排序算法过程", "crawler": "数据采集与清洗流程",
+    "git": "Git 分支与提交图", "tdd": "TDD 红绿重构循环",
+    "uml": "UML 类图关系", "scrum": "Scrum 迭代与看板",
+    "circuit": "串并联电路", "motor_ctrl": "电动机正反转互锁控制",
+    "plc_scan": "PLC 扫描周期", "rs485": "RS485 / Modbus 主从通信",
+    "pcb": "PCB 布局布线", "power_seq": "开关电源上电时序",
+    "multimeter": "万用表测量方法", "ae_seq": "AE 关键帧与合成",
+    "pr_flow": "PR 剪辑到导出流程", "color": "调色一级校色",
+    "photo": "光圈快门 ISO 曝光三角", "threepoint": "三点布光位",
+    "ui": "UI 栅格与配色", "funnel": "电商转化漏斗",
+    "pricing": "定价与毛利结构", "supply": "供应链与库存周转",
+    "aida": "AIDA 活动策划", "marketing": "活动投放节奏",
+    "cashflow": "GMV 到实际到账", "abc": "ABC 品类分类",
+}
+
+
+def _fig_label(name):
+    return _FIG_LABEL.get(name, name)
+
+
+def detect_figure(text, fallback=""):
+    """
+    从任务文字里判断该配哪张图。
+    返回 (图名, 命中关键词列表, 置信度 high/mid/low)。
+    什么都没命中 → 返回模板兜底图 + low。
+    """
+    raw = (text or "").lower()
+    if not raw.strip():
+        return (fallback if fallback in FIGURES else ""), [], "low"
+    flat = re.sub(r"\s+", "", raw)  # 压平空白，方便 "access 口" 这类词
+
+    scores, hits = {}, {}
+    for name, kws in _FIG_RULES:
+        got = []
+        for kw in kws:
+            k = re.sub(r"\s+", "", kw.lower())
+            if k and k in flat:
+                got.append((kw, len(k)))  # 长词更有指向性
+        if got:
+            scores[name] = sum(w for _, w in got)
+            hits[name] = [kw for kw, _ in got]
+
+    if not scores:
+        return (fallback if fallback in FIGURES else ""), [], "low"
+
+    # 模板自带图在候选里时加权重（老师通常不改场景）
+    if fallback in scores:
+        scores[fallback] += 3
+
+    best = sorted(scores.items(), key=lambda x: (-x[1], _FIG_ORDER.index(x[0]) if x[0] in _FIG_ORDER else 99))
+    name, sc = best[0]
+    if name not in FIGURES:
+        return (fallback if fallback in FIGURES else ""), [], "low"
+    conf = "high" if sc >= 10 else ("mid" if sc >= 5 else "low")
+    return name, hits.get(name, []), conf
+
+
+def task_figure(env, title="", content=""):
+    """
+    任务最终该显示哪张图：
+      1) 老师手工指定过 → 优先（存在 tasks.figure 字段）
+      2) 否则按标题+内容自动判断
+      3) 都不行 → 模板自带图
+    """
+    tpl_fig = get_figure(env) or ""
+    name, hits, conf = detect_figure("{} {}".format(title or "", content or ""), tpl_fig)
+    return name or tpl_fig, hits, conf
+
+
 @st.cache_resource(show_spinner=False)
 def _figure_cached(name):
     """图是纯字符串计算，缓存到资源级 → 同一张图只算一次"""
@@ -4013,7 +4157,8 @@ SCHEMA = [
         mermaid_graph TEXT,
         create_time TEXT,
         env TEXT DEFAULT 'vrp',
-        class_id INTEGER
+        class_id INTEGER,
+        figure TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4041,6 +4186,11 @@ def init_db():
     if st.session_state.get("_db_inited"):
         return
     db_exec_many(SCHEMA)
+    # 旧库平滑升级：tasks 表补上 figure 列（已存在则忽略）
+    try:
+        db_exec("ALTER TABLE tasks ADD COLUMN figure TEXT")
+    except DBError:
+        pass
     st.session_state["_db_inited"] = True
 
 
@@ -4133,28 +4283,35 @@ def get_all_class_ids_names():
     return rows
 
 
-def add_task(title, content, graph, env, class_id):
+def add_task(title, content, graph, env, class_id, figure=""):
     db_exec(
-        """INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id)
-           VALUES (?,?,?,?,?,?)""",
-        (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id),
+        """INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id, figure)
+           VALUES (?,?,?,?,?,?,?)""",
+        (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id,
+         figure or ""),
     )
     bump("struct")
 
 
-def update_task(tid, title, content, graph, env=None):
-    if env is None:
+def update_task(tid, title, content, graph, env=None, figure=None):
+    if env is None and figure is None:
         db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=? WHERE id=?",
                 (title, content, graph, tid))
-    else:
+    elif env is None:
+        db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=?, figure=? WHERE id=?",
+                (title, content, graph, figure, tid))
+    elif figure is None:
         db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=?, env=? WHERE id=?",
                 (title, content, graph, env, tid))
+    else:
+        db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=?, env=?, figure=? WHERE id=?",
+                (title, content, graph, env, figure, tid))
     bump("struct")
 
 
 def get_tasks_by_class(cid):
     rows, _, _ = db_exec(
-        """SELECT id, title, content, mermaid_graph, create_time, env
+        """SELECT id, title, content, mermaid_graph, create_time, env, COALESCE(figure,'')
            FROM tasks WHERE class_id=? ORDER BY id DESC""",
         (cid,),
     )
@@ -4163,7 +4320,7 @@ def get_tasks_by_class(cid):
 
 def task_by_id(tid):
     rows, _, _ = db_exec(
-        "SELECT id, title, content, mermaid_graph, create_time, env, class_id FROM tasks WHERE id=?", (tid,))
+        "SELECT id, title, content, mermaid_graph, create_time, env, class_id, COALESCE(figure,'') FROM tasks WHERE id=?", (tid,))
     return rows[0] if rows else None
 
 
@@ -4473,11 +4630,33 @@ def render_tab_publish(my_classes):
     st.caption("该模板自带：{}　｜　步骤数：{}　｜　参考命令：{}".format(
         tpl["visual"], len(tpl.get("steps") or []), len(tpl.get("commands") or [])))
 
-    render_figure(tpl["figure"], "↑ 该实训的配套场景图（学生端同步显示）")
-
     st.markdown("**② 微调任务内容**")
     title = st.text_input("任务名称", value=tpl["title"], key="pub_title_{}".format(tpl_key))
     content = st.text_area("任务要求", value=tpl["content"], height=170, key="pub_content_{}".format(tpl_key))
+
+    # ---- 配图：按任务文字自动匹配，可手工覆盖 ----
+    auto_fig, auto_hits, auto_conf = task_figure(tpl_key, title, content)
+    fig_choices = ["自动（按任务文字判断）"] + ["{}　[{}]".format(n, _fig_label(n)) for n in FIGURES]
+    cur_choice = st.session_state.get("pub_fig_choice_{}".format(tpl_key), fig_choices[0])
+    if cur_choice not in fig_choices:
+        cur_choice = fig_choices[0]
+    picked = st.selectbox("🗺️ 任务配图", fig_choices, index=fig_choices.index(cur_choice),
+                          key="pub_fig_choice_{}".format(tpl_key),
+                          help="默认按你写的任务名称/要求自动匹配；也可手工指定一张")
+    manual_fig = "" if picked == fig_choices[0] else picked.split("　[")[0]
+
+    if manual_fig:
+        show_fig, show_note = manual_fig, "教师手工指定"
+    else:
+        show_fig = auto_fig
+        conf_cn = {"high": "高", "mid": "中", "low": "低"}[auto_conf]
+        show_note = "自动匹配 · 置信度{}".format(conf_cn) + (
+            "　命中：" + "、".join(auto_hits[:5]) if auto_hits else "　（未命中关键词，用模板默认图）")
+
+    render_figure(show_fig, "↑ {}：{}".format(show_note, _fig_label(show_fig)))
+    if auto_fig and show_fig != auto_fig:
+        st.caption("💡 文字自动判断为「{}」，你已改为「{}」".format(
+            _fig_label(auto_fig), _fig_label(show_fig)))
 
     with st.expander("🧪 先自己试一遍（不影响学生数据）"):
         st.caption("在下面敲命令，看看这个实训的模拟器会长什么样、会不会报错。")
@@ -4501,7 +4680,7 @@ def render_tab_publish(my_classes):
         if not title.strip():
             st.error("任务名称不能为空")
         else:
-            add_task(title.strip(), content, "", tpl_key, sel_cid)
+            add_task(title.strip(), content, "", tpl_key, sel_cid, manual_fig)
             bust_cache()
             st.success("任务发布成功，学生端会在 {} 秒内自动看到".format(PROBE_SECONDS))
             st.rerun()
@@ -4513,12 +4692,14 @@ def render_tab_publish(my_classes):
         return
 
     st.markdown("**本班已发布任务（{} 个）**".format(len(tasks)))
-    for tid, ttitle, tcontent, tgraph, ctime, tenv in tasks:
+    for _row in tasks:
+        tid, ttitle, tcontent, tgraph, ctime, tenv = _row[:6]
+        tfig = _row[6] if len(_row) > 6 else ""
         with st.expander("【{}】{} {}".format(ctime, get_label(tenv), ttitle)):
             st.markdown(tcontent or "")
-            fig = get_figure(tenv)
+            fig = tfig if (tfig and tfig in FIGURES) else task_figure(tenv, ttitle, tcontent)[0]
             if fig:
-                render_figure(fig)
+                render_figure(fig, "↑ " + _fig_label(fig))
             elif tgraph:
                 st.code(tgraph)
             if st.button("🗑 删除任务", key="del_task_{}".format(tid)):
@@ -4539,7 +4720,9 @@ def render_tab_manage(my_classes):
     if not tasks:
         st.info("本班还没有任务")
         return
-    for tid, ttitle, tcontent, tgraph, ctime, tenv in tasks:
+    for _row in tasks:
+        tid, ttitle, tcontent, tgraph, ctime, tenv = _row[:6]
+        tfig0 = _row[6] if len(_row) > 6 else ""
         with st.expander("【{}】{} {}".format(ctime, get_label(tenv), ttitle)):
             nt = st.text_input("任务名称", value=ttitle, key="mg_t_{}".format(tid))
             nc = st.text_area("任务要求", value=tcontent or "", height=140, key="mg_c_{}".format(tid))
@@ -4550,10 +4733,24 @@ def render_tab_manage(my_classes):
             pick = st.selectbox("实训类型", all_labels,
                                 index=all_keys.index(cur) if cur in all_keys else 0,
                                 key="mg_e_{}".format(tid))
+
+            # 配图：手改标题/内容后自动重算，也可手工指定
+            _auto = task_figure(all_keys[all_labels.index(pick)], nt, nc)[0]
+            _opts = ["自动（按任务文字判断）"] + ["{}　[{}]".format(n, _fig_label(n)) for n in FIGURES]
+            _want = "自动（按任务文字判断）"
+            for o in _opts[1:]:
+                if o.split("　[")[0] == tfig0:
+                    _want = o
+                    break
+            _picked = st.selectbox("🗺️ 任务配图", _opts, index=_opts.index(_want),
+                                   key="mg_f_{}".format(tid))
+            _fig = "" if _picked == _opts[0] else _picked.split("　[")[0]
+            render_figure(_fig or _auto, "↑ " + _fig_label(_fig or _auto))
+
             if st.button("保存修改", key="mg_save_{}".format(tid), type="primary"):
-                update_task(tid, nt.strip(), nc, "", all_keys[all_labels.index(pick)])
+                update_task(tid, nt.strip(), nc, "", all_keys[all_labels.index(pick)], _fig)
                 bust_cache()
-                st.success("已保存")
+                st.success("已保存，学生端会在 {} 秒内更新".format(PROBE_SECONDS))
                 st.rerun()
             if st.button("🗑 删除", key="mg_del_{}".format(tid)):
                 del_task(tid)
@@ -4853,7 +5050,7 @@ def task_area(cid, sn):
 
     options = {}
     for row in tasks:
-        tid, title, content, graph, ctime, env = row
+        tid, title, content, graph, ctime, env = row[:6]
         options["{} {}　·　{}　#{}".format(get_label(env), title, ctime, tid)] = row
 
     keys = list(options.keys())
@@ -4866,7 +5063,8 @@ def task_area(cid, sn):
                        key="stu_task_{}".format(sn))
     st.session_state["_cur_task_{}".format(sn)] = sel
     row = options[sel]
-    tid, title, content, graph, ctime, env = row
+    tid, title, content, graph, ctime, env = row[:6]
+    forced_fig = row[6] if len(row) > 6 else ""
 
     tpl = get_tpl(env)
     st.markdown('<div class="jp-hero"><h1 style="font-size:22px">{}</h1>'
@@ -4876,7 +5074,11 @@ def task_area(cid, sn):
 
     st.markdown(content or "")
 
-    fig = get_figure(env)
+    # 配图：老师手工指定 > 按任务文字自动判断 > 模板自带图
+    if forced_fig and forced_fig in FIGURES:
+        fig = forced_fig
+    else:
+        fig, _hits, _conf = task_figure(env, title, content)
     if fig:
         st.markdown("**🗺️ 实训示意图**")
         render_figure(fig)
