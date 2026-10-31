@@ -28,10 +28,23 @@ def get_db():
     _turso = {"endpoint": endpoint, "token": token}
     return _turso
 
+def _to_turso_arg(v):
+    """把 Python 值转成 Turso Value 格式（带类型标记）"""
+    if v is None:
+        return {"type": "null"}
+    if isinstance(v, bool):
+        return {"type": "integer", "value": 1 if v else 0}
+    if isinstance(v, int):
+        return {"type": "integer", "value": v}
+    if isinstance(v, float):
+        return {"type": "float", "value": v}
+    return {"type": "text", "value": str(v)}
+
 def db_exec(sql, args=None):
     db = get_db()
+    stmt_args = [_to_turso_arg(a) for a in (args or [])]
     body = {"requests": [
-        {"type": "execute", "stmt": {"sql": sql, "args": args or []}},
+        {"type": "execute", "stmt": {"sql": sql, "args": stmt_args}},
         {"type": "close"}
     ]}
     r = requests.post(
