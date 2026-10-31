@@ -16,7 +16,6 @@ class IntegrityError(Exception):
 _turso = None
 
 def get_db():
-    """读取 Streamlit Secrets，构造 Turso HTTP 连接配置（全局复用）"""
     global _turso
     if _turso:
         return _turso
@@ -30,7 +29,6 @@ def get_db():
     return _turso
 
 def db_exec(sql, args=None):
-    """执行一条 SQL。返回 (rows, lastid, rowcount)。"""
     db = get_db()
     body = {"requests": [
         {"type": "execute", "stmt": {"sql": sql, "args": args or []}},
@@ -45,14 +43,16 @@ def db_exec(sql, args=None):
         json=body, timeout=30
     )
     if r.status_code != 200:
-        raise RuntimeError(f"Turso 返回 HTTP {r.status_code}: {r.text[:500]}")
+        st.error(f"Turso 返回 HTTP {r.status_code}: {r.text[:500]}")
+        st.stop()
     data = r.json()
     item = data["results"][0]
     if "error" in item:
         msg = item["error"].get("message", "unknown error")
         if "UNIQUE" in msg or "PRIMARY KEY" in msg:
             raise IntegrityError(msg)
-        raise RuntimeError(msg)
+        st.error(f"SQL 错误：{msg}")
+        st.stop()
     res = item.get("response", {}).get("result", {}) or {}
     rows = [tuple(row) for row in res.get("rows", [])]
     lastid = res.get("last_insert_rowid", 0) or 0
