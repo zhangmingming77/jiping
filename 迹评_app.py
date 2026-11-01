@@ -1891,6 +1891,10 @@ class VRPSim:
             self.mode = "system"
             return ok("Enter system view, return user view with Ctrl+Z.")
 
+        if bare in ("y", "yes") and self.saved:
+            self.saved = False
+            return ok("Info: The configuration takes effect on the next startup.")
+
         if bare == "save":
             if self.mode == "user":
                 return err(caret_err(raw))
@@ -2347,7 +2351,7 @@ class LinuxSim:
             return ok("\n".join(rows))
 
         # 网络
-        if body in ("ip addr", "ip a", "ifconfig"):
+        if body in ("ip addr", "ip a", "ip address", "ifconfig"):
             return ok("1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536\n    inet 127.0.0.1/8 scope host lo\n"
                       "2: ens33: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\n"
                       "    link/ether 00:0c:29:aa:bb:cc brd ff:ff:ff:ff:ff:ff\n"
@@ -4622,11 +4626,35 @@ def new_sim(env):
         return None
 
 
+_ABBREV_MAP = {
+    "sys": "system-view", "sy": "system-view",
+    "dis": "display", "disp": "display",
+    "int": "interface", "i": "interface",
+    "addr": "address", "br": "brief",
+}
+_IP_ABBREV = {"a": "address", "r": "route", "l": "link"}
+
+
+def _expand_abbrev(cmd):
+    """真实设备的简写补全：sys / int g0/0/0 / dis vlan / ip a 都展开成全称再交给模拟器"""
+    toks = (cmd or "").strip().split()
+    out = []
+    for t in toks:
+        low = t.lower()
+        prev = out[-1].lower() if out else ""
+        if prev == "ip" and low in _IP_ABBREV:
+            out.append(_IP_ABBREV[low])
+        else:
+            out.append(_ABBREV_MAP.get(low, t))
+    return " ".join(out)
+
+
 def simulate(sim, cmd):
     if sim is None:
         return False, "该实训环境未配置模拟器"
     try:
-        return sim(cmd)
+        okk, out = sim(_expand_abbrev(cmd))
+        return okk, out
     except Exception as exc:  # 模拟器自身异常不能炸页面
         return False, "模拟器异常：{}".format(exc)
 
@@ -4754,16 +4782,47 @@ def _ans_norm(cmd):
     return s
 
 
+def _tok_match(stu_tok, ans_tok):
+    """
+    单个词的比对：真实设备允许"唯一前缀补全"。
+      sys      → system-view    ✔
+      int/dis  → interface/display ✔
+      但含数字的词（IP、VLAN 号、接口号）必须原样一致，防止 192 顶替 192.168.1.1
+    """
+    if stu_tok == ans_tok:
+        return True
+    if stu_tok and ans_tok and not stu_tok[0].isdigit() and not ans_tok[0].isdigit() \
+            and len(stu_tok) <= len(ans_tok) and ans_tok.startswith(stu_tok):
+        return True
+    return False
+
+
+def _prefix_match(c, na, allow_extra=False):
+    """按词做前缀补全比对；allow_extra=True 时学生多打结尾参数也算（partial 用）"""
+    ct, at = c.split(), na.split()
+    if len(ct) < len(at):
+        return False
+    for x, y in zip(ct, at):
+        if not _tok_match(x, y):
+            return False
+    if len(ct) == len(at):
+        return True
+    return allow_extra and (len(c) - len(na)) <= 16
+
+
 def check_answer(cmd, answer_cmds):
     """
     判断学生这条命令是否命中答案里的某一条。
     返回 (状态, 命中的答案序号或 None, 提示文字)
       状态：correct / partial / wrong / empty
 
-    判定规则（从严到宽）：
-      1. 归一化后完全一致                     → correct
-      2. 学生只多打了结尾的参数（如 save force）→ partial
-      3. 其余                                → wrong
+    判定规则（从严到宽），与真实设备习惯一致：
+      1. 归一化后完全一致                          → correct
+      2. 前缀缩写：sys / int g0/0/0 / dis ip int br → correct
+         （每个词是答案对应词的前缀即可；含数字的词必须一致）
+      3. 带管道过滤（| include）                   → correct
+      4. 学生只多打了结尾参数（save force）        → partial
+      5. 其余                                     → wrong
     注意：不允许"学生少打词"（display ip interface 不能替代 ...brief），
           因为少参数在设备上往往是另一条命令、会导致错误配置。
     """
@@ -4777,19 +4836,23 @@ def check_answer(cmd, answer_cmds):
         if c == _ans_norm(a):
             return "correct", i, ""
 
+    # 前缀缩写（sys = system-view，int g0/0/0 = interface g0/0/0）
+    for i, a in enumerate(answer_cmds):
+        na = _ans_norm(a)
+        if na and _prefix_match(c, na):
+            return "correct", i, ""
+
     # 带管道过滤（| include / | exclude）视为同一条命令，只在显示层加了过滤
     for i, a in enumerate(answer_cmds):
         na = _ans_norm(a)
         if na and re.split(r"\s*\|\s*", c)[0].strip() == na:
             return "correct", i, ""
 
-    # 只允许"学生比答案更长"（多打了可选参数），且多出的部分是完整词
+    # 学生比答案多打了结尾参数（可选参数），多出部分 ≤16 字符
     for i, a in enumerate(answer_cmds):
         na = _ans_norm(a)
-        if na and c.startswith(na + " "):
-            extra = c[len(na):].strip()
-            if extra and len(extra) <= 16:
-                return "partial", i, ""
+        if na and _prefix_match(c, na, allow_extra=True):
+            return "partial", i, ""
     return "wrong", None, ""
 
 
@@ -5294,6 +5357,8 @@ def render_tab_publish(my_classes):
     st.markdown("---")
     st.markdown("**④ 标准答案（学生敲命令时按这个判对错）**")
     st.caption("一行一条命令；`#` 开头是注释；可带 `1. ` 编号（会自动去掉）。"
+               "学生写全称或常见简写都算对：`sys`＝system-view、`int g0/0/0`＝interface …、"
+               "`dis ip int br`＝display ip interface brief（和真机敲法一致）。"
                "留空则学生端只显示步骤、不判对错。")
     default_answer = "\n".join(tpl["commands"]) if tpl.get("commands") else ""
     answer = st.text_area(
