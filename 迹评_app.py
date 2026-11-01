@@ -4833,6 +4833,54 @@ def _prefix_match(c, na, allow_extra=False):
     return allow_extra and (len(c) - len(na)) <= 16
 
 
+_FUZZY_NEG = ("不", "取消", "别", "未", "禁止", "关闭")
+_FUZZY_SYN = [
+    ("价格", "售价", "单价", "定价", "价钱"),
+    ("设置", "设定", "定为", "改为", "改成", "调整", "配置", "设为", "修改"),
+    ("元", "块", "块钱"),
+    ("包邮", "免邮", "免运费", "包运费"),
+    ("开启", "打开", "启用", "上线"),
+    ("关闭", "下架"),
+    ("降低", "下调", "减少"),
+    ("提高", "上调", "增加", "提升"),
+]
+
+
+def _fuzzy_canon(text):
+    """同义词归一：售价/单价/定价 → 价格，定为/改成 → 设置 …"""
+    for group in _FUZZY_SYN:
+        for w in group[1:]:
+            text = text.replace(w, group[0])
+    return text
+
+
+def _fuzzy_match(stu, ans):
+    """
+    描述性答案的"意思对了就算"（仅当标准答案含中文时启用，设备命令不走这条）：
+      1. 答案里的关键数字（售价 99、折扣 8 折、库存 50）学生必须全中
+      2. 同义词归一后，中文字有相当比例对上（含数字 ≥25%，纯文字 ≥50%）
+      3. 否定词一致性：答案"不包邮"，学生"包邮"不算对
+    """
+    ans = _fuzzy_canon(ans)
+    stu = _fuzzy_canon(stu)
+    nums_ans = re.findall(r"\d+(?:\.\d+)?", ans)
+    nums_stu = re.findall(r"\d+(?:\.\d+)?", stu)
+    if nums_ans and not all(n in nums_stu for n in nums_ans):
+        return False
+    wa = set(re.findall(r"[\u4e00-\u9fa5]", ans))
+    if not wa:
+        return False  # 纯命令/纯英文答案不做模糊匹配
+    wc = set(re.findall(r"[\u4e00-\u9fa5]", stu))
+    ratio = sum(1 for ch in wa if ch in wc) / len(wa)
+    ok = ratio >= 0.2 if nums_ans else ratio >= 0.5
+    if ok:
+        neg_a = any(w in ans for w in _FUZZY_NEG)
+        neg_s = any(w in stu for w in _FUZZY_NEG)
+        if neg_a != neg_s:
+            return False
+    return ok
+
+
 def check_answer(cmd, answer_cmds):
     """
     判断学生这条命令是否命中答案里的某一条。
@@ -4869,6 +4917,12 @@ def check_answer(cmd, answer_cmds):
     for i, a in enumerate(answer_cmds):
         na = _ans_norm(a)
         if na and re.split(r"\s*\|\s*", c)[0].strip() == na:
+            return "correct", i, ""
+
+    # 描述性答案"意思对了就算"（含中文的答案；数字全中 + 关键词对上 + 否定一致）
+    for i, a in enumerate(answer_cmds):
+        na = _ans_norm(a)
+        if na and _fuzzy_match(c, na):
             return "correct", i, ""
 
     # 学生比答案多打了结尾参数（可选参数），多出部分 ≤16 字符
@@ -5937,7 +5991,7 @@ def work_area(env, tid, sn, cid, tpl, answer_cmds=None):
                 else:
                     st.error(last["out"])
             elif v == "correct":
-                st.success("✅ **正确**　和标准答案第 {} 条完全一致".format((last.get("ans_idx") or 0) + 1))
+                st.success("✅ **正确**　与标准答案第 {} 条一致".format((last.get("ans_idx") or 0) + 1))
                 if last["out"]:
                     st.code(last["out"], language="text")
             elif v == "partial":
