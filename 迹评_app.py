@@ -1453,6 +1453,10 @@ def _custom_figure_editor(default_spec, key, default_fig=""):
     ctype0, _sep, body0 = (payload0 or "").partition("|")
     if ctype0 not in _CUSTOM_KINDS:
         ctype0, body0 = _CUSTOM_KINDS[0], payload0 or ""
+    # 图库名（如 switch_basic）不是合法自定义载荷：清空，走默认示例拓扑，
+    # 避免把图库名当作一台设备画进图里
+    if body0 and body0.strip() in FIGURES:
+        body0 = ""
 
     st.caption("不用画画软件：在下面直接加节点、连线、步骤，右边立刻出图，"
                "学生端看到的就是这张。加几台主机、加几步流程都行。")
