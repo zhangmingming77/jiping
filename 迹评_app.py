@@ -1194,6 +1194,195 @@ def render_figure(name, caption=""):
         st.caption(caption)
 
 
+# ============================================================
+# ★ 配图定制：图上文字可替换 + 老师可上传自己的图
+#     存库格式（tasks.figure 字段）：
+#        "图库名"                          → 直接用图库图
+#        "lib:图库名|旧=>新;旧=>新"        → 图库图 + 文字替换
+#        "img:<base64>"                    → 老师上传的图片
+# ============================================================
+MAX_UPLOAD_BYTES = 1024 * 1024  # 单图 1MB
+
+
+def parse_figure_spec(spec):
+    """
+    解析 figure 字段 → (类型, 图库名, 替换表, base64)
+      类型: "lib" 用图库图（可能带替换）/ "img" 上传图 / "" 无图
+    """
+    spec = (spec or "").strip()
+    if not spec:
+        return "", "", [], ""
+    if spec.startswith("img:"):
+        return "img", "", [], spec[4:]
+
+    body = spec[4:] if spec.startswith("lib:") else spec
+    name, _, repl_raw = body.partition("|")
+    name = name.strip()
+    repl = []
+    for pair in repl_raw.split(";"):
+        pair = pair.strip()
+        if not pair or "=>" not in pair:
+            continue
+        a, b = pair.split("=>", 1)
+        a = a.strip()
+        if a:
+            repl.append((a, b.strip()))
+    return "lib", name, repl, ""
+
+
+def build_figure_spec(kind, name="", repl=None, b64=""):
+    """反向拼装 figure 字段"""
+    if kind == "img" and b64:
+        return "img:" + b64
+    if not name:
+        return ""
+    repl = [p for p in (repl or []) if p[0].strip()]
+    if not repl:
+        return name
+    return "lib:" + name + "|" + ";".join("{} => {}".format(a, b) for a, b in repl)
+
+
+def svg_texts(svg):
+    """把 SVG 里所有文本节点抽出来，供老师参考改哪个词"""
+    return re.findall(r">([^<>]{1,60})<", svg or "")
+
+
+def apply_text_repl(svg, repl):
+    """在 SVG 上做文字替换（只替换 > 文本 < 之间的内容，不碰标签属性）"""
+    if not svg or not repl:
+        return svg
+
+    def _sub(m):
+        inner = m.group(1)
+        out = inner
+        for a, b in repl:
+            if a and b and a != b:
+                out = out.replace(a, b)
+        return ">" + out + "<"
+
+    return re.sub(r">([^<>]{1,200})<", _sub, svg)
+
+
+def figure_svg_custom(spec):
+    """按 figure 字段生成最终 SVG（带文字替换）"""
+    kind, name, repl, b64 = parse_figure_spec(spec)
+    if kind != "lib":
+        return ""
+    base = figure_svg(name)
+    return apply_text_repl(base, repl)
+
+
+def render_figure_spec(spec, caption=""):
+    """统一渲染：图库图 / 改字图 / 上传图"""
+    kind, name, repl, b64 = parse_figure_spec(spec)
+    if kind == "img" and b64:
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            st.caption("（上传的图片已损坏）")
+            return
+        st.image(raw, use_container_width=True)
+        if caption:
+            st.caption(caption)
+        return
+    if kind == "lib" and name:
+        svg = figure_svg_custom(spec)
+        if svg:
+            st.markdown(
+                '<div style="border:1px solid #E3E8EF;border-radius:10px;padding:10px;'
+                'background:#fff;overflow-x:auto">{}</div>'.format(svg),
+                unsafe_allow_html=True)
+            if caption:
+                st.caption(caption)
+            return
+    st.caption("（暂无配图）")
+
+
+def figure_editor(default_spec="", key="fig", title="配图"):
+    """
+    老师端配图编辑器（方案 C）：
+      ① 从图库选图（按专业分类）
+      ② 图上文字替换（把 PC1 改成财务部PC、改 IP / VLAN 号）
+      ③ 或直接上传自己的图片（PNG/JPG/SVG，≤1MB）
+    返回 figure 字段字符串（存库用）
+    """
+    kind0, name0, repl0, b64_0 = parse_figure_spec(default_spec)
+    default_fig = name0 if kind0 == "lib" else ""
+
+    mode = st.radio(
+        "{}来源".format(title),
+        ["图库选图（可改图上文字）", "上传自己的图"],
+        index=0 if kind0 != "img" else 1,
+        horizontal=True,
+        key="{}_mode".format(key),
+    )
+
+    # ---------- 上传自己的图 ----------
+    if mode == "上传自己的图":
+        up = st.file_uploader(
+            "上传图片（PNG / JPG / SVG，≤1MB）",
+            type=["png", "jpg", "jpeg", "svg"],
+            key="{}_up".format(key),
+            help="自己用 PPT / Visio / draw.io 画的图都可以，随任务存进数据库，换电脑也不丢",
+        )
+        if up is not None:
+            raw = up.getvalue()
+            if len(raw) > MAX_UPLOAD_BYTES:
+                st.error("图片 {:.1f}MB 超过 1MB 限制，请压缩后再传".format(
+                    len(raw) / 1024 / 1024))
+            else:
+                b64 = base64.b64encode(raw).decode("ascii")
+                st.image(raw, use_container_width=True)
+                st.caption("↑ 学生端将看到这张图（{:.0f} KB）".format(len(raw) / 1024))
+                st.session_state["{}_b64".format(key)] = b64
+        elif b64_0:
+            try:
+                st.image(base64.b64decode(b64_0), use_container_width=True)
+                st.caption("↑ 当前已保存的图")
+            except Exception:
+                st.caption("（已保存的图无法显示）")
+            st.session_state.setdefault("{}_b64".format(key), b64_0)
+        else:
+            st.info("还没有上传图片。上传后会覆盖图库选图。")
+        return build_figure_spec("img", b64=st.session_state.get("{}_b64".format(key), ""))
+
+    # ---------- 图库选图 ----------
+    picked = figure_picker(title, default_fig, key="{}_pick".format(key))
+
+    # 文字替换
+    svg0 = figure_svg(picked)
+    ents = [t.strip() for t in svg_texts(svg0)]
+    seen, uniq = set(), []
+    for t in ents:
+        if t and t not in seen and not t.replace(".", "").replace("-", "").isdigit():
+            seen.add(t)
+            uniq.append(t)
+
+    st.markdown("**图上文字替换**（不改图结构，只把字换掉）")
+    st.caption("例：把 `PC1` 改成 `财务部PC`，把 `192.168.1.10` 改成你班里用的地址。"
+               "左列留空表示不改。")
+    if uniq:
+        with st.expander("👀 这张图上的文字（可复制到下面）", expanded=False):
+            st.write("　".join("`{}`".format(t) for t in uniq[:40]))
+
+    n = st.number_input("替换几条", min_value=1, max_value=10,
+                        value=max(1, len(repl0)), key="{}_n".format(key))
+    repl = []
+    for i in range(int(n)):
+        c1, c2 = st.columns([1, 1])
+        old = c1.text_input("原文字 {}".format(i + 1),
+                            value=repl0[i][0] if i < len(repl0) else "",
+                            key="{}_o{}".format(key, i), placeholder="PC1")
+        new = c2.text_input("改成 {}".format(i + 1),
+                            value=repl0[i][1] if i < len(repl0) else "",
+                            key="{}_v{}".format(key, i), placeholder="财务部PC")
+        if old.strip():
+            repl.append((old.strip(), new.strip()))
+
+    preview_spec = build_figure_spec("lib", picked, repl)
+    render_figure_spec(preview_spec, "↑ 学生端将看到这张（{}）".format(_fig_label(picked)))
+    return preview_spec
+
 
 # ============================================================
 # 命令匹配工具
@@ -4729,10 +4918,10 @@ def render_tab_publish(my_classes):
                            key="pub_content_{}".format(tpl_key))
 
     st.markdown("---")
-    st.markdown("**③ 配图（自己选，不自动猜）**")
-    figure = figure_picker("配图", tpl["figure"], key="pub_fig_{}".format(tpl_key),
-                           help_text="拓扑图 / 流程图 / 时序图等，按专业分类挑")
-    render_figure(figure, "↑ 学生会看到这张：{}".format(_fig_label(figure)))
+    st.markdown("**③ 配图（图库选图可改字，或上传自己的图）**")
+    st.caption("流程图 / 拓扑图 / 时序图都能换；图上文字写得不对可以直接替换，"
+               "也可以用 PPT / Visio 画好上传。")
+    figure = figure_editor(tpl["figure"], key="pub_fig_{}".format(tpl_key), title="任务配图")
 
     st.markdown("---")
     st.markdown("**④ 标准答案（学生敲命令时按这个判对错）**")
@@ -4799,9 +4988,8 @@ def render_tab_publish(my_classes):
         n_ans = len(parse_answer(tans))
         with st.expander("【{}】{}　{}　（答案 {} 条）".format(ctime, ttitle, get_label(tenv), n_ans)):
             st.markdown(tcontent or "")
-            fig = tfig if (tfig and tfig in FIGURES) else (get_figure(tenv) or "")
-            if fig:
-                render_figure(fig, "↑ " + _fig_label(fig))
+            _spec = tfig if tfig else (get_figure(tenv) or "")
+            render_figure_spec(_spec)
             if n_ans:
                 st.markdown("**标准答案**")
                 st.code("\n".join(parse_answer(tans)), language="text")
@@ -4846,9 +5034,8 @@ def render_tab_manage(my_classes):
                                 key="mg_e_{}".format(tid))
 
             st.markdown("**配图**")
-            mfig = figure_picker("配图", tfig0 or get_figure(cur_env) or "",
-                                 key="mg_fig_{}".format(tid))
-            render_figure(mfig, "↑ " + _fig_label(mfig))
+            mfig = figure_editor(tfig0 or get_figure(cur_env) or "",
+                                 key="mg_fig_{}".format(tid), title="任务配图")
 
             st.markdown("**标准答案**")
             ma = st.text_area("标准答案", value=tans0 or "", height=150,
@@ -5220,11 +5407,11 @@ def task_area(cid, sn):
 
     st.markdown(content or "")
 
-    # 配图：老师选的（没有就退回模板自带图）
-    fig = forced_fig if (forced_fig and forced_fig in FIGURES) else (get_figure(env) or "")
-    if fig:
+    # 配图：老师选的（含改字图 / 上传图），没有就退回模板自带图
+    fig_spec = forced_fig if forced_fig else (get_figure(env) or "")
+    if fig_spec:
         st.markdown("**🗺️ 实训示意图**")
-        render_figure(fig, "↑ " + _fig_label(fig))
+        render_figure_spec(fig_spec)
     elif graph and graph.strip():
         st.code(graph)
 
@@ -5273,7 +5460,7 @@ def work_area(env, tid, sn, cid, tpl, answer_cmds=None):
                 # 按标准答案判定
                 stt, ai, _ = check_answer(c, answer_cmds)
                 if stt == "correct":
-                    _mark_steps(done, answer_cmds, c)
+                    _mark_steps(done, answer_steps(answer_cmds), c)
                 save_progress(env, tid, sn, done, answer_cmds)
                 st.session_state["_last_{}".format(tid)] = {
                     "cmd": c, "ok": okk, "out": out, "prompt": prompt,
