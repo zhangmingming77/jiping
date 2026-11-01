@@ -7,66 +7,49 @@
 
 覆盖 **8 个专业方向 · 38 个实训场景**，全部配套图由本地 SVG 引擎生成。
 
+> 💡 本版本为**单文件应用**，只需仓库里一个 `迹评_app.py`（即 `迹评_app_v4.py` 改名）。
+
 ---
 
 ## ✨ 特性
 
-|            |                                                              |
-| ---------- | ------------------------------------------------------------ |
-| **38 个实训** | 计算机网络 / Linux 运维 / 数据库 / Python / 软件工程 / 电气自动化 / 数字媒体 / 电子商务 |
-| **真实模拟器**  | 带状态的终端：VRP 视图切换、Linux 服务与端口、MySQL 建表生效、Python 真跑代码、电气安全联锁    |
-| **本地出图**   | 45 张场景图纯 Python 生成 SVG，**约 0.1ms/张**，零 CDN、零 iframe          |
-| **秒级同步**   | 老师发布任务，学生端 **3 秒内**自动出现，不闪屏、不丢状态                             |
-| **断点续做**   | 步骤进度由历史命令回算，刷新/换设备进度不丢                                       |
-| **学情看板**   | 全班总览 + 单生明细 + 任务维度统计，一键导出 Excel                              |
+|              |                                                              |
+| ------------ | ------------------------------------------------------------ |
+| **38 个实训**   | 计算机网络 / Linux 运维 / 数据库 / Python / 软件工程 / 电气自动化 / 数字媒体 / 电子商务 |
+| **真实模拟器**    | 带状态的终端：VRP 视图切换、Linux 服务与端口、MySQL 建表生效、Python 真跑代码、电气安全联锁    |
+| **标准答案判对错**  | 老师发布任务时填一行一条的标准答案，学生每敲一条命令当场判定 ✅ 正确 / 🟡 相近 / ❌ 不对           |
+| **配图老师全权控制** | 图库选图（按专业分类）→ 图上文字可替换（如 PC1 → 财务部PC）→ 也可直接上传自己的图（≤1MB，随任务存库）  |
+| **本地出图**     | 45 张场景图纯 Python 生成 SVG，**约 0.1ms/张**，零 CDN、零 iframe          |
+| **秒级同步**     | 老师发布任务，学生端 **3 秒内**自动出现，不闪屏、不丢状态                             |
+| **断点续做**     | 步骤进度由历史命令回算，刷新/换设备进度不丢                                       |
+| **学情看板**     | 全班总览 + 单生明细 + 任务维度统计，一键导出 Excel                              |
 
 ---
 
-## 🚀 部署到 Streamlit Cloud（推荐）
+## 🚀 部署到 Streamlit Cloud（GitHub）
 
-### 1. Fork / 导入仓库
-
-登录 [share.streamlit.io](https://share.streamlit.io) → **New app** → 选择本仓库 → 主文件填 `迹评_app_v4.py`（也可重命名为 `app.py`）。
-
-### 2. 准备数据库（Turso，免费）
-
-1. 注册 [turso.tech](https://turso.tech)
-2. 创建数据库（任意名字，选最近的地域）
-3. 记下两项：
-   - **Database URL**：`libsql://xxxx-yyyy.turso.io`
-   - **Auth Token**：点 *Create Token* 生成
-
-> 表结构会在首次访问时自动创建，无需手动执行 SQL。
-
-### 3. 填入 Secrets
-
-在 Streamlit Cloud 的 **Settings → Secrets** 粘贴：
+1. 用 GitHub Desktop 把 `迹评_app_v4.py` 覆盖仓库里的 `迹评_app.py`（或改名），连同 `requirements.txt`、`.streamlit/secrets.example.toml` 一起 push
+2. 登录 [share.streamlit.io](https://share.streamlit.io) → **New app** → 选择仓库 → 主文件填 `迹评_app.py`
+3. 数据库用 [Turso](https://turso.tech)（免费）：建库后拿到 `Database URL` 和 `Auth Token`
+4. Streamlit Cloud 的 **Settings → Secrets** 粘贴：
 
 ```toml
 TURSO_URL = "libsql://你的库名-你的账号.turso.io"
 TURSO_AUTH_TOKEN = "eyJhbGciOi..."
 ```
 
-保存后应用会自动重启。
+保存后应用自动重启；表结构首次访问自动创建，无需手动建表。
 
 ---
 
 ## 💻 本地运行
 
 ```bash
-git clone https://github.com/<你的账号>/<仓库名>.git
-cd <仓库名>
-
 pip install -r requirements.txt
-
-# 配置密钥
 cp .streamlit/secrets.example.toml .streamlit/secrets.toml
-# 编辑 secrets.toml 填入真实的 TURSO_URL / TURSO_AUTH_TOKEN
-
-streamlit run app.py
+# 编辑 secrets.toml 填入 TURSO_URL / TURSO_AUTH_TOKEN
+streamlit run 迹评_app.py
 ```
-
-浏览器打开 <http://localhost:8501>
 
 ---
 
@@ -74,96 +57,47 @@ streamlit run app.py
 
 ### 教师
 
-1. 侧栏切到 **教师端** → 注册 → 登录
-2. **班级** 标签：创建班级（如「信安252」），学生用班级名+姓名进入
-3. **发布任务** 标签：选方向 → 选模板 → 可微调标题/要求 → 发布
-   - 左侧实时预览配套图，可展开「学生视角试跑」验证题目可解
-4. **学情分析** 标签：看全班正确率、每人操作数、哪道题卡住最多
+1. 侧栏切到 **老师端** → 注册 → 登录
+2. **班级管理**：创建班级（如「信安252」），学生用班级名+姓名进入
+3. **发布任务**：选方向 → 选模板 → 可微调标题/要求 →
+   - **③ 配图**：图库选图（可改图上文字，如把 `PC1` 改成 `财务部PC`、改 IP / VLAN 号），或上传自己画的图（PNG/JPG/SVG，≤1MB）
+   - **④ 标准答案**：一行一条命令，学生端就按这个逐条判对错；留空则只显示步骤不判分
+   - 可先在「学生视角试跑」里自己敲一遍验证
+4. **任务管理**：随时改任务的名称/要求/配图/答案，学生端 3 秒内同步
+5. **学情分析**：全班正确率、每人操作数，一键导出 Excel
 
 ### 学生
 
 1. 选班级 → 填姓名 → 进入（无需注册）
-2. 选任务 → 看要求与示意图 → 在终端敲命令
-3. 右侧步骤清单自动打勾，完成度实时更新
-4. 记录随时导出 CSV
+2. 选任务 → 看要求与老师指定的示意图 → 在终端敲命令
+3. 每条命令当场显示 ✅ 正确（与答案第 N 条一致）/ 🟡 相近（多打了参数）/ ❌ 不对（附提示）
+4. 右侧步骤清单自动打勾，完成度实时更新，刷新/换设备不丢
 
 ---
 
-## 🗂 项目结构
+## 🖼 配图说明
 
-```
-app.py                      入口、身份路由、落地页
-requirements.txt
+老师发布的每张图存在任务记录里，三种形式：
 
-jiping/core/
-    database.py             Turso HTTP v2 客户端（连接池 / 重试 / 批量查询）
-    store.py                数据访问层（缓存 / bump 变更信号 / 学情聚合）
-    templates.py            实训模板注册表
-    graph.py                本地 SVG 绘图引擎（拓扑/流程/时序/ER/时间轴/柱图）
-    figures.py              各方向场景图组装
-    sim_utils.py            命令宽容匹配（大小写/空格/简写都能过）
-    terminal.py             带状态终端小引擎
+| 形式  | 存储格式                 | 说明                 |
+| --- | -------------------- | ------------------ |
+| 图库图 | `图库名`                | 45 张内置场景图直接用       |
+| 改字图 | `lib:图库名\|旧=>新;旧=>新` | 图结构不变，只替换图上文字      |
+| 上传图 | `img:<base64>`       | 老师自己的图片，≤1MB，随任务存库 |
 
-jiping/domains/
-    dept_cs.py              计算机网络（VRP）
-    dept_linux.py           Linux 运维
-    dept_db.py              数据库（MySQL）
-    dept_python.py          Python（含安全 ast 求值器）
-    dept_se.py              软件工程（Git / TDD / UML / 敏捷）
-    dept_ee.py              电气自动化（电工 / PLC / 通信 / PCB）
-    dept_media.py           数字媒体（AE / PR / 调色 / 摄影 / UI）
-    dept_ecom.py            电子商务（运营 / 供应链 / 营销 / 支付）
-
-jiping/ui/
-    student.py              学生端
-    teacher.py              教师端
-    style.py                样式与本地图形组件
-
-.streamlit/
-    config.toml             主题与服务器配置
-    secrets.example.toml    密钥模板（secrets.toml 已在 .gitignore 中）
-```
-
----
-
-## ➕ 新增一门实训
-
-在对应 `jiping/domains/dept_*.py` 末尾加一条 `register(...)`，页面代码零改动：
-
-```python
-from ..core import figures as F
-from ..core.templates import register
-
-register("my_new_lab", {
-    "label": "🔧 我的实训",          # 教师端下拉显示名
-    "group": "软件工程",              # 所属方向（自动分组）
-    "badge": "Demo",                 # 小标签
-    "prompt": "$",                   # 终端提示符
-    "title": "示例实训",
-    "preview": "一句话说明练什么",
-    "content": "1. 第一步\n2. 第二步",
-    "figure": F.fig_git,             # 配套图（可选）
-    "fig_hint": "图注",
-    "commands": ["git init"],        # 参考命令（可选）
-    "steps": [                       # 步骤检查：命中任一关键字即打勾
-        ("初始化仓库", ["git init"]),
-    ],
-    "hints": {"git init": "在项目根目录执行"},   # 出错提示（可选）
-    "run": lambda cmd: (True, "done"),          # 命令执行器
-})
-```
+换电脑、换浏览器都不会丢。
 
 ---
 
 ## ⚙️ 性能设计说明
 
-| 旧版问题             | 本版方案                                       | 实测              |
-| ---------------- | ------------------------------------------ | --------------- |
-| Mermaid 出图 2~5 秒 | 本地 SVG 引擎，无网络无 iframe                      | **0.04 ms/张**   |
-| 发任务学生端要等 60 秒    | `bumps` 变更表 + 3 秒指纹轮询 + `st.fragment` 局部刷新 | **3.0 秒可见**     |
-| 切页面卡顿            | 连接池 + 聚合 SQL + 图缓存                         | **0.7 秒/次切换**   |
-| 刷新丢进度            | 步骤由数据库历史命令回算                               | 新会话 **100% 还原** |
-| 8 人并发            | 连接池 32 + 自动重试                              | **8/8 成功**      |
+| 旧版问题             | 本版方案                                       | 实测           |
+| ---------------- | ------------------------------------------ | ------------ |
+| Mermaid 出图 2~5 秒 | 本地 SVG 引擎，无网络无 iframe                      | **0.1 ms/张** |
+| 发任务学生端要等 60 秒    | `bumps` 变更表 + 3 秒指纹轮询 + `st.fragment` 局部刷新 | **3 秒内可见**   |
+| 切页面卡顿            | 连接池 + 聚合 SQL + 图缓存                         | 流畅           |
+| 刷新丢进度            | 步骤由数据库历史命令回算                               | 新会话 100% 还原  |
+| 判对错靠关键词猜         | 标准答案精确比对（宽容大小写/空格/简写/管道过滤）                 | 15/15 判例全对   |
 
 ---
 
