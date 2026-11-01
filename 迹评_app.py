@@ -1063,147 +1063,102 @@ FIGURES = {
 
 
 # ============================================================
-# ★ 任务配图解析：根据老师写的任务名称/要求，自动挑对应的操作图
-#     纯关键词规则，0 网络、0 延迟（<0.1ms），结果可解释
-#     顺序很重要：越具体的场景越靠前，避免 "VLAN 里提到 OSPF" 被误判
+# ★ 配图库：老师手动选择（不再自动猜）
 # ============================================================
-# (图名, [触发词...])  匹配到分数最高者；同分取靠前的
-_FIG_RULES = [
-    # ---- 计算机网络 ----
-    ("ospf",       ["ospf", "动态路由", "路由协议", "area0", "abr", "邻居关系", "路由表"]),
-    ("vlan",       ["vlan", "trunk", "access口", "端口划分", "vlanif", "三层交换", "vlan间"]),
-    ("stp",        ["stp", "生成树", "环路", "阻塞端口", "根桥", "rstp", "mstp"]),
-    ("dhcp",       ["dhcp", "地址池", "自动获取ip", "自动获取地址", "ippool", "租期"]),
-    ("acl",        ["acl", "访问控制", "包过滤", "rule", "deny", "permit", "封禁"]),
-    ("nat",        ["nat", "地址转换", "公网", "私网", "easyip", "端口映射"]),
-    ("switch_basic", ["交换机", "ipaddress", "接口配置", "基础配置", "保存配置", "system-view"]),
-    # ---- Linux ----
-    ("nginx",      ["nginx", "web服务", "站点", "反向代理", "虚拟主机", "80端口", "静态资源"]),
-    ("lnmp",       ["lnmp", "lamp", "部署网站", "整站", "php", "建站", "源码部署"]),
-    ("perm",       ["权限", "chmod", "chown", "777", "755", "属主", "rwx"]),
-    ("shell_flow", ["shell", "脚本", "for语句", "while", "自动化运维", "定时任务"]),
-    ("linux_basic", ["linux", "命令行", "目录", "用户", "进程", "磁盘", "基本命令"]),
-    # ---- 数据库 ----
-    ("join",       ["join", "多表", "关联查询", "连表", "三表", "外键关联"]),
-    ("index",      ["索引", "index", "explain", "执行计划", "慢查询", "性能优化"]),
-    ("txn",        ["事务", "transaction", "commit", "rollback", "回滚", "acid", "并发"]),
-    ("er_student", ["er图", "实体关系", "建模", "表结构设计", "字段设计", "数据库设计", "成绩库", "创建表"]),
-    ("er_simple",  ["建表", "createtable", "数据类型", "主键", "设计表", "单表"]),
-    # ---- Python ----
-    ("crawler",    ["爬虫", "requests", "抓取", "解析html", "beautifulsoup", "采集", "清洗", "去重", "数据清洗"]),
-    ("oop",        ["面向对象", "class", "继承", "封装", "多态", "对象"]),
-    ("algo",       ["算法", "排序", "查找", "复杂度", "递归", "二分"]),
-    ("py_flow",    ["python", "循环", "分支", "函数", "列表", "字典", "编程"]),
-    # ---- 软件工程 ----
-    ("git",        ["git", "版本控制", "分支", "合并", "冲突", "commit", "clone"]),
-    ("tdd",        ["tdd", "单元测试", "测试驱动", "pytest", "断言", "测试用例"]),
-    ("uml",        ["uml", "类图", "用例图", "时序图", "设计类"]),
-    ("scrum",      ["scrum", "敏捷", "迭代", "待办", "sprint", "站会", "看板"]),
-    # ---- 电气自动化 ----
-    ("motor_ctrl", ["电动机", "正反转", "接触器", "互锁", "km1", "km2", "自锁", "点动"]),
-    ("plc_scan",   ["plc", "梯形图", "扫描周期", "定时器", "计数器", "输入输出"]),
-    ("rs485",      ["485", "modbus", "串口", "波特率", "从站", "站号", "通信参数"]),
-    ("pcb",        ["pcb", "布线", "封装", "原理图", "焊盘", "布局"]),
-    ("power_seq",  ["开关电源", "上电", "时序", "smps", "24v", "纹波", "电源模块"]),
-    ("multimeter", ["万用表", "电压档", "电流档", "电阻档", "通断", "蜂鸣", "测量"]),
-    ("circuit",    ["电路", "欧姆定律", "串联", "并联", "基尔霍夫", "电阻", "电流"]),
-    # ---- 数字媒体 ----
-    ("ae_seq",     ["aftereffects", "关键帧", "合成", "动效", "缓动", "表达式", "ae"]),
-    ("pr_flow",    ["premiere", "剪辑", "时间线", "字幕", "导出视频", "转场", "pr"]),
-    ("color",      ["调色", "色轮", "lut", "曲线", "白平衡", "校色"]),
-    ("photo",      ["摄影", "光圈", "快门", "iso", "曝光", "构图", "景深"]),
-    ("threepoint", ["三点布光", "布光", "主光", "辅光", "轮廓光", "打光"]),
-    ("ui",         ["界面设计", "栅格", "配色", "字体", "对比度", "组件", "原型", "ui"]),
-    # ---- 电子商务 ----
-    ("funnel",     ["漏斗", "转化率", "uv", "pv", "加购", "跳失", "流量"]),
-    ("pricing",    ["定价", "毛利", "成本", "售价", "利润", "保本"]),
-    ("supply",     ["库存", "供应链", "补货", "断货", "日销", "交期", "安全库存"]),
-    ("aida",       ["活动", "大促", "策划", "投放", "roi", "预算", "推广"]),
-    ("cashflow",   ["对账", "结算", "佣金", "到账", "退款", "现金流", "gmv"]),
-    ("abc",        ["abc分类", "二八", "重点管理", "品类管理"]),
-]
-
 _FIG_ORDER = list(FIGURES.keys())
 
-# 图名 → 中文说明（老师选图时看得懂）
-_FIG_LABEL = {
-    "switch_basic": "交换机基础配置拓扑", "vlan": "VLAN 划分与 Trunk 链路",
-    "ospf": "OSPF 多区域邻居关系", "stp": "STP 生成树阻塞端口",
-    "dhcp": "DHCP 地址池分配", "acl": "ACL 访问控制匹配", "nat": "NAT 地址转换",
-    "linux_basic": "Linux 命令与系统分层", "nginx": "Nginx 站点服务链路",
-    "perm": "Linux 权限 rwx 模型", "shell_flow": "Shell 脚本执行流程",
-    "lnmp": "LNMP 整站部署链路",
-    "er_student": "学生成绩库 ER 图", "er_simple": "单表建表结构",
-    "join": "多表 JOIN 查询过程", "index": "B+ 树索引与执行计划",
-    "txn": "事务 ACID 与回滚流程",
-    "py_flow": "Python 程序执行流程", "oop": "类 / 继承 / 对象关系",
-    "algo": "排序算法过程", "crawler": "数据采集与清洗流程",
-    "git": "Git 分支与提交图", "tdd": "TDD 红绿重构循环",
-    "uml": "UML 类图关系", "scrum": "Scrum 迭代与看板",
-    "circuit": "串并联电路", "motor_ctrl": "电动机正反转互锁控制",
-    "plc_scan": "PLC 扫描周期", "rs485": "RS485 / Modbus 主从通信",
-    "pcb": "PCB 布局布线", "power_seq": "开关电源上电时序",
-    "multimeter": "万用表测量方法", "ae_seq": "AE 关键帧与合成",
-    "pr_flow": "PR 剪辑到导出流程", "color": "调色一级校色",
-    "photo": "光圈快门 ISO 曝光三角", "threepoint": "三点布光位",
-    "ui": "UI 栅格与配色", "funnel": "电商转化漏斗",
-    "pricing": "定价与毛利结构", "supply": "供应链与库存周转",
-    "aida": "AIDA 活动策划", "marketing": "活动投放节奏",
-    "cashflow": "GMV 到实际到账", "abc": "ABC 品类分类",
+# 图名 → (中文名, 分类)，老师按分类挑图，看得懂
+_FIG_META = {
+    "switch_basic": ("交换机基础配置拓扑", "计算机网络"),
+    "vlan": ("VLAN 划分与 Trunk 链路", "计算机网络"),
+    "ospf": ("OSPF 多区域邻居关系", "计算机网络"),
+    "stp": ("STP 生成树阻塞端口", "计算机网络"),
+    "dhcp": ("DHCP 地址池分配", "计算机网络"),
+    "acl": ("ACL 访问控制匹配", "计算机网络"),
+    "nat": ("NAT 地址转换", "计算机网络"),
+    "linux_basic": ("Linux 命令与系统分层", "Linux 运维"),
+    "nginx": ("Nginx 站点服务链路", "Linux 运维"),
+    "perm": ("Linux 权限 rwx 模型", "Linux 运维"),
+    "shell_flow": ("Shell 脚本执行流程", "Linux 运维"),
+    "lnmp": ("LNMP 整站部署链路", "Linux 运维"),
+    "er_student": ("学生成绩库 ER 图", "数据库技术"),
+    "er_simple": ("单表建表结构", "数据库技术"),
+    "join": ("多表 JOIN 查询过程", "数据库技术"),
+    "index": ("B+ 树索引与执行计划", "数据库技术"),
+    "txn": ("事务 ACID 与回滚流程", "数据库技术"),
+    "py_flow": ("Python 程序执行流程", "Python 编程"),
+    "oop": ("类 / 继承 / 对象关系", "Python 编程"),
+    "algo": ("排序算法过程", "Python 编程"),
+    "crawler": ("数据采集与清洗流程", "Python 编程"),
+    "git": ("Git 分支与提交图", "软件工程"),
+    "tdd": ("TDD 红绿重构循环", "软件工程"),
+    "uml": ("UML 类图关系", "软件工程"),
+    "scrum": ("Scrum 迭代与看板", "软件工程"),
+    "circuit": ("串并联电路", "电气自动化"),
+    "motor_ctrl": ("电动机正反转互锁控制", "电气自动化"),
+    "plc_scan": ("PLC 扫描周期", "电气自动化"),
+    "rs485": ("RS485 / Modbus 主从通信", "电气自动化"),
+    "pcb": ("PCB 布局布线", "电气自动化"),
+    "power_seq": ("开关电源上电时序", "电气自动化"),
+    "multimeter": ("万用表测量方法", "电气自动化"),
+    "ae_seq": ("AE 关键帧与合成", "数字媒体"),
+    "pr_flow": ("PR 剪辑到导出流程", "数字媒体"),
+    "color": ("调色一级校色", "数字媒体"),
+    "photo": ("光圈快门 ISO 曝光三角", "数字媒体"),
+    "threepoint": ("三点布光位", "数字媒体"),
+    "ui": ("UI 栅格与配色", "数字媒体"),
+    "funnel": ("电商转化漏斗", "电子商务"),
+    "pricing": ("定价与毛利结构", "电子商务"),
+    "supply": ("供应链与库存周转", "电子商务"),
+    "aida": ("AIDA 活动策划", "电子商务"),
+    "marketing": ("活动投放节奏", "电子商务"),
+    "cashflow": ("GMV 到实际到账", "电子商务"),
+    "abc": ("ABC 品类分类", "电子商务"),
 }
 
 
 def _fig_label(name):
-    return _FIG_LABEL.get(name, name)
+    """图名 → 中文名"""
+    return _FIG_META.get(name, (name, ""))[0]
 
 
-def detect_figure(text, fallback=""):
+def _fig_groups():
+    """按专业分类返回 {分类: [(图名, 中文名)]}，供老师挑图"""
+    out = {}
+    for name in _FIG_ORDER:
+        label, grp = _FIG_META.get(name, (name, "其他"))
+        out.setdefault(grp, []).append((name, label))
+    return out
+
+
+def figure_picker(label, default_fig="", key="", help_text=""):
     """
-    从任务文字里判断该配哪张图。
-    返回 (图名, 命中关键词列表, 置信度 high/mid/low)。
-    什么都没命中 → 返回模板兜底图 + low。
+    老师手动选图控件：先选专业分类，再选具体图。
+    返回选中的图名（绝不返回空）。
     """
-    raw = (text or "").lower()
-    if not raw.strip():
-        return (fallback if fallback in FIGURES else ""), [], "low"
-    flat = re.sub(r"\s+", "", raw)  # 压平空白，方便 "access 口" 这类词
+    groups = _fig_groups()
+    gnames = list(groups.keys())
 
-    scores, hits = {}, {}
-    for name, kws in _FIG_RULES:
-        got = []
-        for kw in kws:
-            k = re.sub(r"\s+", "", kw.lower())
-            if k and k in flat:
-                got.append((kw, len(k)))  # 长词更有指向性
-        if got:
-            scores[name] = sum(w for _, w in got)
-            hits[name] = [kw for kw, _ in got]
+    # 默认分类 = 默认图所属分类
+    d_group = gnames[0]
+    for g, items in groups.items():
+        if any(n == default_fig for n, _ in items):
+            d_group = g
+            break
 
-    if not scores:
-        return (fallback if fallback in FIGURES else ""), [], "low"
-
-    # 模板自带图在候选里时加权重（老师通常不改场景）
-    if fallback in scores:
-        scores[fallback] += 3
-
-    best = sorted(scores.items(), key=lambda x: (-x[1], _FIG_ORDER.index(x[0]) if x[0] in _FIG_ORDER else 99))
-    name, sc = best[0]
-    if name not in FIGURES:
-        return (fallback if fallback in FIGURES else ""), [], "low"
-    conf = "high" if sc >= 10 else ("mid" if sc >= 5 else "low")
-    return name, hits.get(name, []), conf
-
-
-def task_figure(env, title="", content=""):
-    """
-    任务最终该显示哪张图：
-      1) 老师手工指定过 → 优先（存在 tasks.figure 字段）
-      2) 否则按标题+内容自动判断
-      3) 都不行 → 模板自带图
-    """
-    tpl_fig = get_figure(env) or ""
-    name, hits, conf = detect_figure("{} {}".format(title or "", content or ""), tpl_fig)
-    return name or tpl_fig, hits, conf
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        g = st.selectbox("{} · 分类".format(label), gnames,
+                         index=gnames.index(d_group), key="{}_g".format(key),
+                         help=help_text or "先选专业方向")
+    with c2:
+        items = groups[g]
+        labels = [lb for _n, lb in items]
+        names = [n for n, _lb in items]
+        di = names.index(default_fig) if default_fig in names else 0
+        pick = st.selectbox("{} · 具体图".format(label), labels, index=di,
+                            key="{}_f".format(key))
+        return names[labels.index(pick)]
 
 
 @st.cache_resource(show_spinner=False)
@@ -1214,23 +1169,30 @@ def _figure_cached(name):
         return ""
     try:
         return fn()
-    except Exception as exc:  # 单张图出错不能拖垮整页
-        return '<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 400 60">' \
-               '<text x="12" y="34" font-family="sans-serif" font-size="12" fill="#D93A3A">' \
-               '图生成失败：{}</text></svg>'.format(esc(exc))
+    except Exception:
+        return ""
 
 
 def figure_svg(name):
-    return _figure_cached(name or "")
+    """取图的 SVG 字符串（带缓存）"""
+    if not name or name not in FIGURES:
+        return ""
+    return _figure_cached(name)
 
 
 def render_figure(name, caption=""):
+    """在页面上渲染一张图；caption 显示在图下方"""
     svg = figure_svg(name)
     if not svg:
+        st.caption("（暂无配图）")
         return
-    st.markdown('<div class="jp-fig">{}</div>'.format(svg), unsafe_allow_html=True)
+    st.markdown(
+        '<div style="border:1px solid #E3E8EF;border-radius:10px;padding:10px;'
+        'background:#fff;overflow-x:auto">{}</div>'.format(svg),
+        unsafe_allow_html=True)
     if caption:
         st.caption(caption)
+
 
 
 # ============================================================
@@ -4158,7 +4120,8 @@ SCHEMA = [
         create_time TEXT,
         env TEXT DEFAULT 'vrp',
         class_id INTEGER,
-        figure TEXT
+        figure TEXT,
+        steps TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4186,12 +4149,122 @@ def init_db():
     if st.session_state.get("_db_inited"):
         return
     db_exec_many(SCHEMA)
-    # 旧库平滑升级：tasks 表补上 figure 列（已存在则忽略）
-    try:
-        db_exec("ALTER TABLE tasks ADD COLUMN figure TEXT")
-    except DBError:
-        pass
+    # 旧库平滑升级：tasks 表补上 figure / steps 列（已存在则忽略）
+    for _col in ("ALTER TABLE tasks ADD COLUMN figure TEXT",
+                 "ALTER TABLE tasks ADD COLUMN steps TEXT"):
+        try:
+            db_exec(_col)
+        except DBError:
+            pass
     st.session_state["_db_inited"] = True
+
+
+# ============================================================
+# ★ 标准答案：老师写答案，学生敲命令逐条比对
+#     答案存成多行文本，一行一条命令（# 开头是注释、空行忽略）
+# ============================================================
+def parse_answer(text):
+    """
+    把老师写的答案拆成命令列表。
+    规则：一行一条；去掉行号（1. / 1) / 1、）；# 与 // 开头视为注释忽略。
+    """
+    out = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("//"):
+            continue
+        line = re.sub(r"^\s*\d+\s*[.、)\]]\s*", "", line)  # 去掉 "1. " 这类编号
+        line = line.strip()
+        if line:
+            out.append(line)
+    return out
+
+
+def _ans_norm(cmd):
+    """
+    答案比对用的归一化：
+      - 小写、压空格、去行尾分号
+      - 常见设备缩写展开（g0/0/0 → gigabitethernet0/0/0），
+        这样老师写全称、学生写简写也算对
+    """
+    s = re.sub(r"\s+", " ", (cmd or "").strip().lower())
+    s = s.rstrip(";").strip()
+    s = re.sub(r"\bgi(?=\d)", "gigabitethernet", s)          # gi0/0/0
+    s = re.sub(r"\bg(?=\d)", "gigabitethernet", s)           # g0/0/0
+    s = re.sub(r"\beth(?=\d)", "ethernet", s)
+    s = re.sub(r"\bge(?=\d)", "gigabitethernet", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def check_answer(cmd, answer_cmds):
+    """
+    判断学生这条命令是否命中答案里的某一条。
+    返回 (状态, 命中的答案序号或 None, 提示文字)
+      状态：correct / partial / wrong / empty
+
+    判定规则（从严到宽）：
+      1. 归一化后完全一致                     → correct
+      2. 学生只多打了结尾的参数（如 save force）→ partial
+      3. 其余                                → wrong
+    注意：不允许"学生少打词"（display ip interface 不能替代 ...brief），
+          因为少参数在设备上往往是另一条命令、会导致错误配置。
+    """
+    c = _ans_norm(cmd)
+    if not c:
+        return "empty", None, ""
+    if not answer_cmds:
+        return "", None, ""
+
+    for i, a in enumerate(answer_cmds):
+        if c == _ans_norm(a):
+            return "correct", i, ""
+
+    # 带管道过滤（| include / | exclude）视为同一条命令，只在显示层加了过滤
+    for i, a in enumerate(answer_cmds):
+        na = _ans_norm(a)
+        if na and re.split(r"\s*\|\s*", c)[0].strip() == na:
+            return "correct", i, ""
+
+    # 只允许"学生比答案更长"（多打了可选参数），且多出的部分是完整词
+    for i, a in enumerate(answer_cmds):
+        na = _ans_norm(a)
+        if na and c.startswith(na + " "):
+            extra = c[len(na):].strip()
+            if extra and len(extra) <= 16:
+                return "partial", i, ""
+    return "wrong", None, ""
+
+
+def answer_hint(cmd, answer_cmds):
+    """答错时给的最小提示：第几条、开头几个字符、共多少字"""
+    if not answer_cmds:
+        return ""
+    c = _ans_norm(cmd)
+    best, best_score = 0, -1.0
+    for i, a in enumerate(answer_cmds):
+        na = _ans_norm(a)
+        common = 0
+        for x, y in zip(c, na):
+            if x != y:
+                break
+            common += 1
+        score = common / max(len(na), 1)
+        if score > best_score:
+            best, best_score = i, score
+    a = answer_cmds[best]
+    head = a[:max(3, min(14, len(a) // 2))]
+    return "提示：对照标准答案第 {} 条，它以「{}…」开头，共 {} 个字符".format(
+        best + 1, head, len(a))
+
+
+def load_answer(tid, env=""):
+    """取某任务的标准答案；老师没填则返回空列表"""
+    try:
+        rows = db_query("SELECT COALESCE(steps,'') FROM tasks WHERE id=?", (tid,))
+        return parse_answer(rows[0][0]) if rows else []
+    except DBError:
+        return []
 
 
 # ============================================================
@@ -4283,35 +4356,38 @@ def get_all_class_ids_names():
     return rows
 
 
-def add_task(title, content, graph, env, class_id, figure=""):
+def add_task(title, content, graph, env, class_id, figure="", answer=""):
     db_exec(
-        """INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id, figure)
-           VALUES (?,?,?,?,?,?,?)""",
+        """INSERT INTO tasks (title, content, mermaid_graph, create_time, env, class_id, figure, steps)
+           VALUES (?,?,?,?,?,?,?,?)""",
         (title, content, graph, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), env, class_id,
-         figure or ""),
+         figure or "", answer or ""),
     )
     bump("struct")
 
 
-def update_task(tid, title, content, graph, env=None, figure=None):
-    if env is None and figure is None:
-        db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=? WHERE id=?",
-                (title, content, graph, tid))
-    elif env is None:
-        db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=?, figure=? WHERE id=?",
-                (title, content, graph, figure, tid))
-    elif figure is None:
-        db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=?, env=? WHERE id=?",
-                (title, content, graph, env, tid))
-    else:
-        db_exec("UPDATE tasks SET title=?, content=?, mermaid_graph=?, env=?, figure=? WHERE id=?",
-                (title, content, graph, env, figure, tid))
+def update_task(tid, title, content, graph, env=None, figure=None, answer=None):
+    sql = "UPDATE tasks SET title=?, content=?, mermaid_graph=?"
+    args = [title, content, graph]
+    if env is not None:
+        sql += ", env=?"
+        args.append(env)
+    if figure is not None:
+        sql += ", figure=?"
+        args.append(figure)
+    if answer is not None:
+        sql += ", steps=?"
+        args.append(answer)
+    sql += " WHERE id=?"
+    args.append(tid)
+    db_exec(sql, tuple(args))
     bump("struct")
 
 
 def get_tasks_by_class(cid):
     rows, _, _ = db_exec(
-        """SELECT id, title, content, mermaid_graph, create_time, env, COALESCE(figure,'')
+        """SELECT id, title, content, mermaid_graph, create_time, env,
+                  COALESCE(figure,''), COALESCE(steps,'')
            FROM tasks WHERE class_id=? ORDER BY id DESC""",
         (cid,),
     )
@@ -4412,21 +4488,38 @@ def _step_key(env, tid, sn):
 
 
 def _mark_steps(done, steps, cmd):
+    """
+    标记某条命令完成了哪些步骤。
+    steps 既可以是模板的 [(名称, [关键词...])]，也可以是答案的 [(命令, [命令])]；
+    统一按"归一化后包含"判断，答案模式下就是精确匹配。
+    """
     s = squash(cmd)
     for i, (_n, kws) in enumerate(steps):
-        if not done[i] and any(k.lower().replace(" ", "") in s for k in kws):
+        if not done[i] and any(squash(k) in s for k in kws):
             done[i] = True
     return done
 
 
-def load_progress(env, tid, scid, sn):
-    steps = get_steps(env)
+def load_progress(env, tid, scid, sn, answer_cmds=None):
+    """
+    进度来源：
+      有标准答案 → 步骤 = 答案命令，历史命令逐条比对重算
+      无标准答案 → 用模板步骤关键词
+    """
+    answer_cmds = answer_cmds or []
+    if answer_cmds:
+        steps = answer_steps(answer_cmds)
+        key = "_jp_anssteps_{}_{}_{}".format(tid, sn, len(answer_cmds))
+    else:
+        steps = get_steps(env)
+        key = _step_key(env, tid, sn)
     if not steps:
         return []
-    key = _step_key(env, tid, sn)
+
     cached = st.session_state.get(key)
     if isinstance(cached, list) and len(cached) == len(steps):
         return cached
+
     done = [False] * len(steps)
     try:
         rows = get_records_by_class_task(scid, tid, sn)
@@ -4438,8 +4531,11 @@ def load_progress(env, tid, scid, sn):
     return done
 
 
-def save_progress(env, tid, sn, done):
-    st.session_state[_step_key(env, tid, sn)] = done
+def save_progress(env, tid, sn, done, answer_cmds=None):
+    if answer_cmds:
+        st.session_state["_jp_anssteps_{}_{}_{}".format(tid, sn, len(answer_cmds))] = done
+    else:
+        st.session_state[_step_key(env, tid, sn)] = done
 
 
 # ============================================================
@@ -4627,62 +4723,66 @@ def render_tab_publish(my_classes):
     tpl_key = items[labels.index(idx)][0]
     tpl = TEMPLATES[tpl_key]
 
-    st.caption("该模板自带：{}　｜　步骤数：{}　｜　参考命令：{}".format(
-        tpl["visual"], len(tpl.get("steps") or []), len(tpl.get("commands") or [])))
-
-    st.markdown("**② 微调任务内容**")
+    st.markdown("**② 任务内容**")
     title = st.text_input("任务名称", value=tpl["title"], key="pub_title_{}".format(tpl_key))
-    content = st.text_area("任务要求", value=tpl["content"], height=170, key="pub_content_{}".format(tpl_key))
+    content = st.text_area("任务要求（写给学生看）", value=tpl["content"], height=150,
+                           key="pub_content_{}".format(tpl_key))
 
-    # ---- 配图：按任务文字自动匹配，可手工覆盖 ----
-    auto_fig, auto_hits, auto_conf = task_figure(tpl_key, title, content)
-    fig_choices = ["自动（按任务文字判断）"] + ["{}　[{}]".format(n, _fig_label(n)) for n in FIGURES]
-    cur_choice = st.session_state.get("pub_fig_choice_{}".format(tpl_key), fig_choices[0])
-    if cur_choice not in fig_choices:
-        cur_choice = fig_choices[0]
-    picked = st.selectbox("🗺️ 任务配图", fig_choices, index=fig_choices.index(cur_choice),
-                          key="pub_fig_choice_{}".format(tpl_key),
-                          help="默认按你写的任务名称/要求自动匹配；也可手工指定一张")
-    manual_fig = "" if picked == fig_choices[0] else picked.split("　[")[0]
+    st.markdown("---")
+    st.markdown("**③ 配图（自己选，不自动猜）**")
+    figure = figure_picker("配图", tpl["figure"], key="pub_fig_{}".format(tpl_key),
+                           help_text="拓扑图 / 流程图 / 时序图等，按专业分类挑")
+    render_figure(figure, "↑ 学生会看到这张：{}".format(_fig_label(figure)))
 
-    if manual_fig:
-        show_fig, show_note = manual_fig, "教师手工指定"
+    st.markdown("---")
+    st.markdown("**④ 标准答案（学生敲命令时按这个判对错）**")
+    st.caption("一行一条命令；`#` 开头是注释；可带 `1. ` 编号（会自动去掉）。"
+               "留空则学生端只显示步骤、不判对错。")
+    default_answer = "\n".join(tpl["commands"]) if tpl.get("commands") else ""
+    answer = st.text_area(
+        "标准答案", value=default_answer, height=180, key="pub_ans_{}".format(tpl_key),
+        label_visibility="collapsed",
+        placeholder="system-view\ninterface g0/0/0\nip address 192.168.1.1 255.255.255.0\ndisplay ip interface brief\nsave")
+
+    ans_cmds = parse_answer(answer)
+    if ans_cmds:
+        st.success("已录入 **{} 条**标准命令".format(len(ans_cmds)))
+        with st.expander("👀 查看拆解结果（学生端就按这个逐条比对）", expanded=False):
+            for i, c in enumerate(ans_cmds, 1):
+                st.markdown("`{}` {}".format(i, c))
     else:
-        show_fig = auto_fig
-        conf_cn = {"high": "高", "mid": "中", "low": "低"}[auto_conf]
-        show_note = "自动匹配 · 置信度{}".format(conf_cn) + (
-            "　命中：" + "、".join(auto_hits[:5]) if auto_hits else "　（未命中关键词，用模板默认图）")
-
-    render_figure(show_fig, "↑ {}：{}".format(show_note, _fig_label(show_fig)))
-    if auto_fig and show_fig != auto_fig:
-        st.caption("💡 文字自动判断为「{}」，你已改为「{}」".format(
-            _fig_label(auto_fig), _fig_label(show_fig)))
+        st.warning("还没有标准答案，学生端将无法判对错")
 
     with st.expander("🧪 先自己试一遍（不影响学生数据）"):
-        st.caption("在下面敲命令，看看这个实训的模拟器会长什么样、会不会报错。")
+        st.caption("在下面敲命令，既能看到模拟器输出，也能看到按标准答案判定的结果。")
         if "_sandbox_sim" not in st.session_state or st.session_state.get("_sandbox_env") != tpl_key:
             st.session_state["_sandbox_sim"] = new_sim(tpl_key)
             st.session_state["_sandbox_env"] = tpl_key
             st.session_state["_sandbox_log"] = []
         sb_sim = st.session_state["_sandbox_sim"]
         with st.form(key="sb_form_{}".format(tpl_key), clear_on_submit=True):
-            sb_cmd = st.text_input("试一试命令", placeholder="例：点击左侧参考命令复制", key="sb_cmd")
+            sb_cmd = st.text_input("试一试命令", placeholder="例：system-view", key="sb_cmd")
             sb_go = st.form_submit_button("执行")
         if sb_go and sb_cmd.strip() and sb_sim is not None:
             okk, out = simulate(sb_sim, sb_cmd.strip())
-            st.session_state["_sandbox_log"].append((sb_cmd.strip(), okk, out))
-        for c, okk, out in st.session_state["_sandbox_log"][-6:]:
-            st.markdown("{} `{}`".format("🟢" if okk else "🔴", c))
-        if st.session_state["_sandbox_log"]:
-            st.caption("参考命令：" + " ｜ ".join(tpl["commands"][:4]))
+            stt, ai, _h = check_answer(sb_cmd.strip(), ans_cmds)
+            st.session_state["_sandbox_log"].append((sb_cmd.strip(), okk, out, stt, ai))
+        for c, okk, out, stt, ai in st.session_state["_sandbox_log"][-6:]:
+            mark = {"correct": "✅ 与答案第 {} 条一致".format(ai + 1) if ai is not None else "✅ 与答案一致",
+                    "partial": "🟡 与答案第 {} 条相近（多了参数）".format(ai + 1) if ai is not None else "🟡 相近",
+                    "wrong": "❌ 不在标准答案里"}.get(stt, "🔴 执行失败")
+            st.markdown("{} `{}`".format(mark, c))
 
     if st.button("✅ 发布任务", key="btn_publish", type="primary", use_container_width=True):
         if not title.strip():
             st.error("任务名称不能为空")
+        elif not ans_cmds:
+            st.error("请先填写标准答案，否则学生端无法判对错")
         else:
-            add_task(title.strip(), content, "", tpl_key, sel_cid, manual_fig)
+            add_task(title.strip(), content, "", tpl_key, sel_cid, figure, answer)
             bust_cache()
-            st.success("任务发布成功，学生端会在 {} 秒内自动看到".format(PROBE_SECONDS))
+            st.success("任务发布成功（{} 条标准答案），学生端会在 {} 秒内自动看到".format(
+                len(ans_cmds), PROBE_SECONDS))
             st.rerun()
 
     st.markdown("---")
@@ -4695,13 +4795,18 @@ def render_tab_publish(my_classes):
     for _row in tasks:
         tid, ttitle, tcontent, tgraph, ctime, tenv = _row[:6]
         tfig = _row[6] if len(_row) > 6 else ""
-        with st.expander("【{}】{} {}".format(ctime, get_label(tenv), ttitle)):
+        tans = _row[7] if len(_row) > 7 else ""
+        n_ans = len(parse_answer(tans))
+        with st.expander("【{}】{}　{}　（答案 {} 条）".format(ctime, ttitle, get_label(tenv), n_ans)):
             st.markdown(tcontent or "")
-            fig = tfig if (tfig and tfig in FIGURES) else task_figure(tenv, ttitle, tcontent)[0]
+            fig = tfig if (tfig and tfig in FIGURES) else (get_figure(tenv) or "")
             if fig:
                 render_figure(fig, "↑ " + _fig_label(fig))
-            elif tgraph:
-                st.code(tgraph)
+            if n_ans:
+                st.markdown("**标准答案**")
+                st.code("\n".join(parse_answer(tans)), language="text")
+            else:
+                st.warning("该任务没有标准答案，学生端不判对错")
             if st.button("🗑 删除任务", key="del_task_{}".format(tid)):
                 del_task(tid)
                 bust_cache()
@@ -4709,53 +4814,66 @@ def render_tab_publish(my_classes):
 
 
 def render_tab_manage(my_classes):
-    """v4 新增：任务管理（改标题 / 改要求 / 换实训类型）"""
     if not my_classes:
         st.warning("暂无班级")
         return
+
     options = ["{} | {}".format(x[0], x[1]) for x in my_classes]
-    sel = st.selectbox("选择班级", options, key="mgr_class")
-    cid = int(sel.split("|")[0].strip())
-    tasks = q_tasks_by_class(cid)
+    sel = st.selectbox("管理哪个班级的任务", options, key="mg_class")
+    sel_cid = int(sel.split("|")[0].strip())
+
+    tasks = q_tasks_by_class(sel_cid)
     if not tasks:
         st.info("本班还没有任务")
         return
+
+    all_keys = [k for k, _l in sum(template_groups().values(), [])]
+    all_labels = [get_label(k) for k in all_keys]
+
     for _row in tasks:
         tid, ttitle, tcontent, tgraph, ctime, tenv = _row[:6]
         tfig0 = _row[6] if len(_row) > 6 else ""
-        with st.expander("【{}】{} {}".format(ctime, get_label(tenv), ttitle)):
+        tans0 = _row[7] if len(_row) > 7 else ""
+        n0 = len(parse_answer(tans0))
+        with st.expander("【{}】{}　{}　（答案 {} 条）".format(ctime, ttitle,
+                                                         get_label(tenv), n0)):
             nt = st.text_input("任务名称", value=ttitle, key="mg_t_{}".format(tid))
-            nc = st.text_area("任务要求", value=tcontent or "", height=140, key="mg_c_{}".format(tid))
-            groups = template_groups()
-            all_keys = [k for k, _l in sum(groups.values(), [])]
-            all_labels = [get_label(k) for k in all_keys]
-            cur = resolve_env(tenv) or all_keys[0]
-            pick = st.selectbox("实训类型", all_labels,
-                                index=all_keys.index(cur) if cur in all_keys else 0,
+            nc = st.text_area("任务要求", value=tcontent or "", height=130, key="mg_c_{}".format(tid))
+
+            cur_env = resolve_env(tenv) or all_keys[0]
+            pick = st.selectbox("实训类型（决定终端模拟器）", all_labels,
+                                index=all_keys.index(cur_env) if cur_env in all_keys else 0,
                                 key="mg_e_{}".format(tid))
 
-            # 配图：手改标题/内容后自动重算，也可手工指定
-            _auto = task_figure(all_keys[all_labels.index(pick)], nt, nc)[0]
-            _opts = ["自动（按任务文字判断）"] + ["{}　[{}]".format(n, _fig_label(n)) for n in FIGURES]
-            _want = "自动（按任务文字判断）"
-            for o in _opts[1:]:
-                if o.split("　[")[0] == tfig0:
-                    _want = o
-                    break
-            _picked = st.selectbox("🗺️ 任务配图", _opts, index=_opts.index(_want),
-                                   key="mg_f_{}".format(tid))
-            _fig = "" if _picked == _opts[0] else _picked.split("　[")[0]
-            render_figure(_fig or _auto, "↑ " + _fig_label(_fig or _auto))
+            st.markdown("**配图**")
+            mfig = figure_picker("配图", tfig0 or get_figure(cur_env) or "",
+                                 key="mg_fig_{}".format(tid))
+            render_figure(mfig, "↑ " + _fig_label(mfig))
 
-            if st.button("保存修改", key="mg_save_{}".format(tid), type="primary"):
-                update_task(tid, nt.strip(), nc, "", all_keys[all_labels.index(pick)], _fig)
-                bust_cache()
-                st.success("已保存，学生端会在 {} 秒内更新".format(PROBE_SECONDS))
-                st.rerun()
-            if st.button("🗑 删除", key="mg_del_{}".format(tid)):
-                del_task(tid)
-                bust_cache()
-                st.rerun()
+            st.markdown("**标准答案**")
+            ma = st.text_area("标准答案", value=tans0 or "", height=150,
+                              key="mg_a_{}".format(tid), label_visibility="collapsed",
+                              placeholder="一行一条命令，学生敲命令时逐条比对")
+            nma = len(parse_answer(ma))
+            if nma:
+                st.caption("共 {} 条标准命令".format(nma))
+            else:
+                st.caption("⚠️ 空 = 学生端不判对错")
+
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                if st.button("💾 保存修改", key="mg_save_{}".format(tid), type="primary",
+                             use_container_width=True):
+                    update_task(tid, nt.strip(), nc, "", all_keys[all_labels.index(pick)],
+                                mfig, ma)
+                    bust_cache()
+                    st.success("已保存，学生端会在 {} 秒内更新".format(PROBE_SECONDS))
+                    st.rerun()
+            with c2:
+                if st.button("🗑 删除任务", key="mg_del_{}".format(tid), use_container_width=True):
+                    del_task(tid)
+                    bust_cache()
+                    st.rerun()
 
 
 def render_tab_stat(my_classes):
@@ -4926,19 +5044,45 @@ def render_teacher():
 # ============================================================
 # 学生端
 # ============================================================
-def _steps_html(steps, done):
+def _steps_html(items, done, show_answer=False, sub=None):
+    """items: [(显示名, 关键词/命令)]；sub: 每条的附加说明（如提示）"""
     rows = []
-    for i, (name, _kw) in enumerate(steps):
+    for i, (name, _kw) in enumerate(items):
         cls = "jp-step done" if done[i] else "jp-step"
         mark = "✓" if done[i] else str(i + 1)
-        rows.append('<div class="{}"><span class="n">{}</span><span>{}</span></div>'.format(
-            cls, mark, esc(name)))
+        extra = ""
+        if sub and i < len(sub) and sub[i]:
+            extra = '<div style="color:#6B7A8C;font-size:12.5px;margin-top:2px">{}</div>'.format(
+                esc(sub[i]))
+        rows.append('<div class="{}"><span class="n">{}</span><span>{}'
+                    '<span style="display:block">{}</span></span></div>'.format(
+                        cls, mark, esc(name), extra))
     return "".join(rows)
 
 
-def _step_panel(env, tid, sn, done):
+def answer_steps(answer_cmds):
+    """把老师的答案命令列表转成步骤条目（显示名 = 命令本身）"""
+    return [(c, [c]) for c in answer_cmds]
+
+
+def _step_panel(env, tid, sn, done, answer_cmds=None):
+    answer_cmds = answer_cmds or []
+    if answer_cmds:
+        # 老师给了标准答案 → 步骤就是答案里的命令，做一条勾一条
+        items = answer_steps(answer_cmds)
+        st.markdown("**🎯 实训步骤（共 {}）**".format(len(items)))
+        finished = sum(1 for d in done if d)
+        st.progress(finished / len(items) if items else 0.0,
+                    text="完成度 {}/{}".format(finished, len(items)))
+        st.caption("照着老师给的要求，一条条敲；敲对了自动打勾")
+        st.markdown(_steps_html(items, done), unsafe_allow_html=True)
+        if items and finished == len(items):
+            st.success("🎉 全部命令都正确，本次实训通过！")
+        return
+
     steps = get_steps(env)
     if not steps:
+        st.info("老师没有给标准答案，随便敲命令练手即可，不计分。")
         return
     finished = sum(1 for d in done if d)
     total = len(steps)
@@ -5065,6 +5209,8 @@ def task_area(cid, sn):
     row = options[sel]
     tid, title, content, graph, ctime, env = row[:6]
     forced_fig = row[6] if len(row) > 6 else ""
+    answer_raw = row[7] if len(row) > 7 else ""
+    answer_cmds = parse_answer(answer_raw)
 
     tpl = get_tpl(env)
     st.markdown('<div class="jp-hero"><h1 style="font-size:22px">{}</h1>'
@@ -5074,41 +5220,33 @@ def task_area(cid, sn):
 
     st.markdown(content or "")
 
-    # 配图：老师手工指定 > 按任务文字自动判断 > 模板自带图
-    if forced_fig and forced_fig in FIGURES:
-        fig = forced_fig
-    else:
-        fig, _hits, _conf = task_figure(env, title, content)
+    # 配图：老师选的（没有就退回模板自带图）
+    fig = forced_fig if (forced_fig and forced_fig in FIGURES) else (get_figure(env) or "")
     if fig:
         st.markdown("**🗺️ 实训示意图**")
-        render_figure(fig)
+        render_figure(fig, "↑ " + _fig_label(fig))
     elif graph and graph.strip():
         st.code(graph)
 
     st.markdown("---")
-    work_area(env, tid, sn, cid, tpl)
+    work_area(env, tid, sn, cid, tpl, answer_cmds)
 
 
-def work_area(env, tid, sn, cid, tpl):
-    """终端 + 步骤 + 记录"""
-    done = load_progress(env, tid, cid, sn)
+def work_area(env, tid, sn, cid, tpl, answer_cmds=None):
+    """终端 + 步骤 + 记录；老师填了标准答案就逐条判对错"""
+    answer_cmds = answer_cmds or []
+    done = load_progress(env, tid, cid, sn, answer_cmds)
     sim = get_sim_state(env, tid, sn)
 
     left, right = st.columns([3, 2])
     with right:
-        _step_panel(env, tid, sn, done)
+        _step_panel(env, tid, sn, done, answer_cmds)
 
     with left:
         st.markdown("**💻 终端**")
         if sim is None:
             st.warning("该实训环境暂不可用（可能是老师用了已下线的实训类型）")
             return
-
-        cmds = get_commands(env)
-        if cmds:
-            with st.expander("📖 参考命令（不知道敲什么时点这里）", expanded=False):
-                for c in cmds:
-                    st.code(c, language="text")
 
         hints = get_hints(env)
         if hints:
@@ -5119,31 +5257,62 @@ def work_area(env, tid, sn, cid, tpl):
         prompt = prompt_of(env, sim)
         with st.form(key="cmd_form_{}_{}".format(tid, sn), clear_on_submit=True):
             cmd = st.text_input(prompt, key="cmd_input_{}".format(tid),
-                                placeholder="在这里输入命令，回车执行")
+                                placeholder="在这里输入命令，回车判对错")
             submitted = st.form_submit_button("执行命令", type="primary")
 
         if submitted:
             if not cmd.strip():
                 st.warning("请输入命令")
             else:
-                okk, out = simulate(sim, cmd.strip())
+                c = cmd.strip()
+                okk, out = simulate(sim, c)
                 try:
-                    add_record(sn, cid, tid, cmd.strip(), okk, out)
+                    add_record(sn, cid, tid, c, okk, out)
                 except DBError as exc:
                     st.error("记录保存失败：{}".format(exc))
-                _mark_steps(done, get_steps(env), cmd.strip())
-                save_progress(env, tid, sn, done)
-                st.session_state["_last_{}".format(tid)] = {"cmd": cmd.strip(), "ok": okk, "out": out,
-                                                            "prompt": prompt}
+                # 按标准答案判定
+                stt, ai, _ = check_answer(c, answer_cmds)
+                if stt == "correct":
+                    _mark_steps(done, answer_cmds, c)
+                save_progress(env, tid, sn, done, answer_cmds)
+                st.session_state["_last_{}".format(tid)] = {
+                    "cmd": c, "ok": okk, "out": out, "prompt": prompt,
+                    "verdict": stt, "ans_idx": ai,
+                    "hint": answer_hint(c, answer_cmds) if stt == "wrong" else "",
+                }
                 _rerun_frag()
 
         last = st.session_state.get("_last_{}".format(tid))
         if last:
             st.code("{} {}".format(last.get("prompt", prompt), last["cmd"]), language="text")
-            if last["ok"]:
-                st.success(last["out"] or "OK")
+
+            v = last.get("verdict", "")
+            if not answer_cmds:
+                # 老师没填答案：只显示模拟器输出
+                if last["ok"]:
+                    st.success(last["out"] or "OK")
+                else:
+                    st.error(last["out"])
+            elif v == "correct":
+                st.success("✅ **正确**　和标准答案第 {} 条完全一致".format((last.get("ans_idx") or 0) + 1))
+                if last["out"]:
+                    st.code(last["out"], language="text")
+            elif v == "partial":
+                st.info("🟡 **基本正确**　接近标准答案第 {} 条（命令多了些参数，也算通过）".format(
+                    (last.get("ans_idx") or 0) + 1))
+                if last["out"]:
+                    st.code(last["out"], language="text")
+            elif v == "wrong":
+                st.error("❌ **不对**　这条命令不在老师给的标准答案里")
+                if last.get("hint"):
+                    st.caption(last["hint"])
+                if last["out"]:
+                    st.code(last["out"], language="text")
             else:
-                st.error(last["out"])
+                if last["ok"]:
+                    st.success(last["out"] or "OK")
+                else:
+                    st.error(last["out"])
 
     st.markdown("---")
     with st.expander("📝 我的操作记录（本班，最近 {} 条）".format(RECORD_LIMIT)):
