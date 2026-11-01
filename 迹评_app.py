@@ -1852,10 +1852,7 @@ class VRPSim:
         if bare in ("quit", "q"):
             order = ["area", "ospf", "acl", "vlan", "if", "system", "user"]
             i = order.index(self.mode) if self.mode in order else len(order) - 1
-            nxt = order[min(i + 1, len(order) - 1)]
-            self.mode = "system" if nxt == "user" and i + 1 < len(order) else nxt
-            if self.mode == "user":
-                return ok("")
+            self.mode = order[min(i + 1, len(order) - 1)]
             return ok("")
         if bare in ("return", "ctrl+z"):
             self.mode = "system"
@@ -1917,13 +1914,13 @@ class VRPSim:
             self.iface = p
             self.mode = "if"
             return ok("")
-        if bare.startswith("ip address"):
+        if re.match(r"^ip add(?:ress)?\s", bare):
             if self.mode != "if":
                 return err("Error: 请先进入接口视图（interface GigabitEthernet0/0/x）")
-            mm = re.match(r"^ip address\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)$", bare)
+            mm = re.match(r"^ip add(?:ress)?\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)$", bare)
             if not mm:
-                # 允许 24 位掩码写法
-                mm2 = re.match(r"^ip address\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)$", bare)
+                # 允许掩码位写法：ip address 192.168.1.1 24
+                mm2 = re.match(r"^ip add(?:ress)?\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)$", bare)
                 if not mm2:
                     return err(caret_err(raw))
                 bit = int(mm2.group(2))
@@ -4782,15 +4779,41 @@ def _ans_norm(cmd):
     return s
 
 
+def _mask_to_bits(mask):
+    """255.255.255.0 → 24；非法返回 None"""
+    parts = mask.split(".")
+    if len(parts) != 4:
+        return None
+    bits, done = 0, True
+    for p in parts:
+        if not p.isdigit():
+            return None
+        v = int(p)
+        if v < 0 or v > 255:
+            return None
+        bits += bin(v).count("1")
+    return bits if done else None
+
+
 def _tok_match(stu_tok, ans_tok):
     """
     单个词的比对：真实设备允许"唯一前缀补全"。
       sys      → system-view    ✔
       int/dis  → interface/display ✔
+      24       → 255.255.255.0  ✔（掩码位与点分掩码等价）
       但含数字的词（IP、VLAN 号、接口号）必须原样一致，防止 192 顶替 192.168.1.1
     """
     if stu_tok == ans_tok:
         return True
+    # 掩码位 ↔ 点分掩码 等价
+    if ans_tok.count(".") == 3 and stu_tok.isdigit():
+        b = _mask_to_bits(ans_tok)
+        if b is not None and int(stu_tok) == b:
+            return True
+    if stu_tok.count(".") == 3 and ans_tok.isdigit():
+        b = _mask_to_bits(stu_tok)
+        if b is not None and int(ans_tok) == b:
+            return True
     if stu_tok and ans_tok and not stu_tok[0].isdigit() and not ans_tok[0].isdigit() \
             and len(stu_tok) <= len(ans_tok) and ans_tok.startswith(stu_tok):
         return True
