@@ -1214,6 +1214,8 @@ def parse_figure_spec(spec):
         return "", "", [], ""
     if spec.startswith("img:"):
         return "img", "", [], spec[4:]
+    if spec.startswith("topo:"):
+        return "topo", spec[5:], [], ""
 
     body = spec[4:] if spec.startswith("lib:") else spec
     name, _, repl_raw = body.partition("|")
@@ -1272,9 +1274,137 @@ def figure_svg_custom(spec):
     return apply_text_repl(base, repl)
 
 
+_KIND_WORDS = {
+    "主机": "pc", "pc": "pc", "电脑": "pc", "终端": "pc",
+    "交换机": "switch", "switch": "switch", "sw": "switch",
+    "路由器": "router", "router": "router", "r": "router", "防火墙": "router",
+    "服务器": "server", "server": "server",
+    "数据库": "db", "db": "db", "mysql": "db",
+    "云": "cloud", "internet": "cloud", "外网": "cloud", "云平台": "cloud",
+}
+_KIND_NAMES = ["pc", "switch", "router", "server", "db", "cloud", "step"]
+
+
+def topo_kind(word):
+    return _KIND_WORDS.get((word or "").strip().lower(), "step")
+
+
+def parse_topo_payload(payload):
+    """
+    拓扑载荷：`节点;节点#连线;连线`
+      节点 = 名称|副标题|类型(可空)   连线 = A-B:线上文字(可空)
+    → (nodes, links)  nodes=[(id,主,副,类型)], links=[(a,b,文字)]
+    """
+    nodes, links = [], []
+    n_part, _, e_part = payload.partition("#")
+    for item in n_part.split(";"):
+        parts = [p.strip() for p in item.split("|")]
+        if not parts or not parts[0]:
+            continue
+        nodes.append((parts[0], parts[0],
+                      parts[1] if len(parts) > 1 else "",
+                      topo_kind(parts[2]) if len(parts) > 2 and parts[2] else "pc"))
+    for item in e_part.split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        pair, _, txt = item.partition(":")
+        a, sep, b = pair.partition("-")
+        a, b = a.strip(), b.strip()
+        if a and b:
+            links.append((a, b, txt.strip()))
+    return nodes, links
+
+
+def topo_svg(payload, per_row=4, node_w=150, node_h=62):
+    """
+    自定义图渲染总入口。payload 形如 `类型|内容`
+      类型缺省 → 按老格式当纯拓扑载荷
+    """
+    ctype, sep, body = (payload or "").partition("|")
+    if ctype not in _CUSTOM_KINDS:
+        # 老格式：没有类型前缀，整个当拓扑
+        ctype, body = _CUSTOM_KINDS[0], payload or ""
+    try:
+        if ctype == "拓扑图":
+            return _svg_topo(body, per_row, node_w, node_h)
+        if ctype == "流程图":
+            steps = []
+            for ln in body.split("->"):
+                t, _, k = ln.partition("|")
+                if t.strip():
+                    steps.append((t.strip(), (k.strip() or "step")))
+            if not steps:
+                return ""
+            return g_flowchart(steps)
+        if ctype == "时序图":
+            ap, _h, mp = body.partition("#")
+            actors = [x.strip() for x in ap.split(",") if x.strip()]
+            msgs = []
+            for ln in mp.split(";"):
+                f, _, rest = ln.partition("->")
+                to, _, txt = rest.partition(":")
+                if f.strip() and to.strip():
+                    msgs.append((f.strip(), to.strip(), txt.strip()))
+            return g_sequence(actors, msgs) if actors else ""
+        if ctype == "ER 图":
+            ep, _h, rp = body.partition("#")
+            ents = []
+            for blk in ep.split(";;"):
+                blk = blk.strip()
+                if not blk:
+                    continue
+                nm, _, flds = blk.partition(":")
+                fs = []
+                for x in flds.split(","):
+                    x = x.strip()
+                    if not x:
+                        continue
+                    f, _, t = x.partition("/")
+                    fs.append((f.strip(), t.strip().upper()))
+                ents.append((nm.strip(), fs))
+            rels = []
+            for ln in rp.split(";"):
+                a, _, rest = ln.partition("-")
+                b, _, txt = rest.partition(":")
+                if a.strip() and b.strip():
+                    rels.append((a.strip(), b.strip(), txt.strip()))
+            return g_er(ents, rels) if ents else ""
+        if ctype == "时间轴":
+            items = []
+            for ln in body.split(";"):
+                t, _, d = ln.partition(":")
+                if t.strip():
+                    items.append((t.strip(), d.strip()))
+            return g_timeline(items) if items else ""
+    except Exception:
+        return ""
+    return ""
+
+
+def _svg_topo(body, per_row=4, node_w=150, node_h=62):
+    """纯拓扑部分"""
+    nodes, links = parse_topo_payload(body)
+    if not nodes:
+        return ""
+    placed = [(nid, lab, sub, kind, i % per_row, i // per_row)
+              for i, (nid, lab, sub, kind) in enumerate(nodes)]
+    return g_topology(placed, links, node_w=node_w, node_h=node_h)
+
+
 def render_figure_spec(spec, caption=""):
     """统一渲染：图库图 / 改字图 / 上传图"""
     kind, name, repl, b64 = parse_figure_spec(spec)
+    if kind == "topo":
+        svg = topo_svg(name)
+        if svg:
+            st.markdown(
+                '<div style="border:1px solid #E3E8EF;border-radius:10px;padding:10px;'
+                'background:#fff;overflow-x:auto">{}</div>'.format(svg),
+                unsafe_allow_html=True)
+            if caption:
+                st.caption(caption)
+            return
     if kind == "img" and b64:
         try:
             raw = base64.b64decode(b64)
@@ -1298,27 +1428,263 @@ def render_figure_spec(spec, caption=""):
     st.caption("（暂无配图）")
 
 
+_CUSTOM_KINDS = ["拓扑图", "流程图", "时序图", "ER 图", "时间轴"]
+
+
+def _split_rows(text):
+    return [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+
+
+def _svg_frame(svg, note=""):
+    st.markdown(
+        '<div style="border:1px solid #E3E8EF;border-radius:10px;padding:10px;'
+        'background:#fff;overflow-x:auto">{}</div>'.format(svg),
+        unsafe_allow_html=True)
+    if note:
+        st.caption(note)
+
+
+def _custom_figure_editor(default_spec, key, default_fig=""):
+    """
+    自定义画图：按图类型给不同的编辑面板，全部用内置画法引擎生成
+    存库格式： topo:<载荷>   载荷 = 类型|节点段#连线段
+    """
+    kind0, payload0, _r, _b = parse_figure_spec(default_spec)
+    ctype0, _sep, body0 = (payload0 or "").partition("|")
+    if ctype0 not in _CUSTOM_KINDS:
+        ctype0, body0 = _CUSTOM_KINDS[0], payload0 or ""
+
+    st.caption("不用画画软件：在下面直接加节点、连线、步骤，右边立刻出图，"
+               "学生端看到的就是这张。加几台主机、加几步流程都行。")
+    ctype = st.selectbox("图类型", _CUSTOM_KINDS,
+                         index=_CUSTOM_KINDS.index(ctype0), key="{}_ct".format(key))
+    nseg, _h, eseg = (body0 or "").partition("#")
+
+    # ================= 拓扑图 =================
+    if ctype == _CUSTOM_KINDS[0]:
+        nodes0, links0 = parse_topo_payload(nseg + "#" + eseg)
+        c1, c2 = st.columns(2)
+        with c1:
+            n_txt = st.text_area(
+                "设备 / 主机（一行一台）",
+                value="\n".join("{} | {} | {}".format(n, s, k)
+                                for _i, n, s, k in nodes0) or
+                      "PC1 | 192.168.1.10/24 | 主机\nPC2 | 192.168.1.11/24 | 主机\n"
+                      "SW1 | G0/0/1-2 | 交换机\nR1 | GE0/0/0 | 路由器",
+                height=170, key="{}_tn".format(key),
+                help="名称 | 副标题(IP/端口) | 类型。类型：主机 / 交换机 / 路由器 / 服务器 / 数据库 / 云")
+        with c2:
+            e_txt = st.text_area(
+                "连线（一行一条）",
+                value="\n".join("{}-{}:{}".format(a, b, c) for a, b, c in links0) or
+                      "PC1-SW1:access\nPC2-SW1:access\nSW1-R1:trunk\nR1-Internet:NAT",
+                height=170, key="{}_te".format(key),
+                help="甲-乙:线上文字。例：PC1-SW1:access。名字写错的行会被忽略")
+        per_row = st.number_input("每行放几台", 2, 6, 4, key="{}_tr".format(key))
+
+        nodes = []
+        for ln in _split_rows(n_txt):
+            p = [x.strip() for x in ln.split("|")]
+            if p and p[0]:
+                nodes.append((p[0], p[1] if len(p) > 1 else "", p[2] if len(p) > 2 else ""))
+        links = []
+        for ln in _split_rows(e_txt):
+            pair, _, txt = ln.partition(":")
+            a, _, b = pair.partition("-")
+            if a.strip() and b.strip():
+                links.append((a.strip(), b.strip(), txt.strip()))
+        nm = {x[0] for x in nodes}
+        links = [l for l in links if l[0] in nm and l[1] in nm]
+        seg = "{}|{}#{}".format(
+            ctype, ";".join("{}|{}|{}".format(a, b, c) for a, b, c in nodes),
+            ";".join("{}-{}:{}".format(a, b, c) for a, b, c in links))
+        if nodes:
+            _svg_frame(topo_svg(seg.split("|", 1)[1], int(per_row)),
+                       "↑ 学生端将看到这张拓扑：{} 台设备 / {} 条连线".format(len(nodes), len(links)))
+        else:
+            st.info("至少填一台设备，格式：名称 | 副标题 | 类型")
+        return "topo:" + seg
+
+    # ================= 流程图 =================
+    if ctype == _CUSTOM_KINDS[1]:
+        steps0 = []
+        if body0:
+            for ln in body0.split("->"):
+                t, _, k = ln.partition("|")
+                if t.strip():
+                    steps0.append((t.strip(), (k.strip() or "step")))
+        s_txt = st.text_area(
+            "流程步骤（一行一步）",
+            value="\n".join("{} | {}".format(t, k) for t, k in steps0) or
+                  "开始实训 | start\n配置交换机端口 | step\n验证连通性 | check\n"
+                  "是否连通 | check\n排查故障 | warn\n完成任务 | end",
+            height=150, key="{}_fs".format(key),
+            help="写 `文字 | 类型`，类型可选：start / step / check / warn / end（留空按 step）")
+        steps = []
+        for ln in _split_rows(s_txt):
+            t, _, k = ln.partition("|")
+            k = (k.strip() or "step").lower()
+            if t.strip():
+                steps.append((t.strip(), k if k in ("start", "step", "check", "warn", "end") else "step"))
+        seg = "{}|{}".format(ctype, "->".join("{}|{}".format(t, k) for t, k in steps))
+        if steps:
+            _svg_frame(g_flowchart(steps), "↑ 学生端将看到这张流程图：{} 步".format(len(steps)))
+        else:
+            st.info("至少填一步流程")
+        return "topo:" + seg
+
+    # ================= 时序图 =================
+    if ctype == _CUSTOM_KINDS[2]:
+        a0, m0 = [], []
+        if body0:
+            ap, _h3, mp = body0.partition("#")
+            a0 = [x.strip() for x in ap.split(",") if x.strip()]
+            for ln in _split_rows(mp):
+                f, _, rest = ln.partition("->")
+                to, _, txt = rest.partition(":")
+                if f.strip() and to.strip():
+                    m0.append((f.strip(), to.strip(), txt.strip()))
+        c1, c2 = st.columns(2)
+        with c1:
+            a_txt = st.text_area("参与者（逗号分隔）",
+                                 value=", ".join(a0) or "学生, 浏览器, 服务器, 数据库",
+                                 height=90, key="{}_sa".format(key))
+        with c2:
+            m_txt = st.text_area(
+                "消息（一行一条）",
+                value="\n".join("{}->{}:{}".format(a, b, c) for a, b, c in m0) or
+                      "学生->浏览器:提交表单\n浏览器->服务器:POST /login\n"
+                      "服务器->数据库:SELECT user\n数据库->服务器:返回记录\n服务器->浏览器:200 OK",
+                height=150, key="{}_sm".format(key),
+                help="甲->乙:消息内容")
+        actors = [x.strip() for x in a_txt.split(",") if x.strip()]
+        msgs = []
+        for ln in _split_rows(m_txt):
+            f, _, rest = ln.partition("->")
+            to, _, txt = rest.partition(":")
+            if f.strip() and to.strip() and f.strip() in actors and to.strip() in actors:
+                msgs.append((f.strip(), to.strip(), txt.strip()))
+        seg = "{}|{}#{}".format(ctype, ",".join(actors),
+                                ";".join("{}->{}:{}".format(a, b, c) for a, b, c in msgs))
+        if actors:
+            _svg_frame(g_sequence(actors, msgs),
+                       "↑ 学生端将看到这张时序图：{} 个参与者 / {} 条消息".format(len(actors), len(msgs)))
+        else:
+            st.info("至少填一个参与者")
+        return "topo:" + seg
+
+    # ================= ER 图 =================
+    if ctype == _CUSTOM_KINDS[3]:
+        ents0, rels0 = [], []
+        if body0:
+            ep, _h4, rp = body0.partition("#")
+            for blk in ep.split(";;"):
+                blk = blk.strip()
+                if not blk:
+                    continue
+                nm, _, flds = blk.partition(":")
+                ents0.append((nm.strip(), [(x.strip().split("/")[0],
+                                            (x.strip().split("/")[1] if "/" in x else ""))
+                                           for x in flds.split(",") if x.strip()]))
+            for ln in _split_rows(rp):
+                a, _, rest = ln.partition("-")
+                b, _, txt = rest.partition(":")
+                if a.strip() and b.strip():
+                    rels0.append((a.strip(), b.strip(), txt.strip()))
+        e_txt = st.text_area(
+            "表（一行一张）",
+            value="\n".join("{}: {}".format(n, ", ".join(
+                "{}/{}".format(f, t) if t else f for f, t in fs)) for n, fs in ents0) or
+                  "用户: id/PK, 姓名, 手机号\n订单: id/PK, 用户id/FK, 金额, 时间\n"
+                  "商品: id/PK, 名称, 单价",
+            height=130, key="{}_ee".format(key),
+            help="表名: 字段1/PK, 字段2/FK, 字段3 …（/ 后面写 PK 或 FK，不写就是普通字段）")
+        r_txt = st.text_area(
+            "关系（一行一条）",
+            value="\n".join("{}-{}:{}".format(a, b, c) for a, b, c in rels0) or
+                  "用户-订单:1对多\n订单-商品:多对多",
+            height=70, key="{}_er".format(key), help="表A-表B:关系说明")
+        ents = []
+        for ln in _split_rows(e_txt):
+            nm, _, flds = ln.partition(":")
+            if not nm.strip():
+                continue
+            fs = []
+            for x in flds.split(","):
+                x = x.strip()
+                if not x:
+                    continue
+                f, _, t = x.partition("/")
+                fs.append((f.strip(), t.strip().upper()))
+            ents.append((nm.strip(), fs))
+        rels = []
+        for ln in _split_rows(r_txt):
+            a, _, rest = ln.partition("-")
+            b, _, txt = rest.partition(":")
+            if a.strip() and b.strip():
+                rels.append((a.strip(), b.strip(), txt.strip()))
+        seg = "{}|{}#{}".format(
+            ctype,
+            ";;".join("{}:{}".format(n, ", ".join("{}/{}".format(f, t) if t else f for f, t in fs))
+                      for n, fs in ents),
+            ";".join("{}-{}:{}".format(a, b, c) for a, b, c in rels))
+        if ents:
+            _svg_frame(g_er(ents, rels),
+                       "↑ 学生端将看到这张 ER 图：{} 张表".format(len(ents)))
+        else:
+            st.info("至少填一张表")
+        return "topo:" + seg
+
+    # ================= 时间轴 =================
+    items0 = []
+    if body0:
+        for ln in _split_rows(body0):
+            t, _, d = ln.partition(":")
+            if t.strip():
+                items0.append((t.strip(), d.strip()))
+    t_txt = st.text_area(
+        "节点（一行一个）",
+        value="\n".join("{}:{}".format(a, b) for a, b in items0) or
+              "需求调研:第1周 访谈+问卷\n原型设计:第2周 低保真\n开发:第3-5周 迭代\n验收:第6周 演示",
+        height=120, key="{}_ti".format(key), help="标题:说明")
+    items = []
+    for ln in _split_rows(t_txt):
+        t, _, d = ln.partition(":")
+        if t.strip():
+            items.append((t.strip(), d.strip()))
+    seg = "{}|{}".format(ctype, ";".join("{}:{}".format(a, b) for a, b in items))
+    if items:
+        _svg_frame(g_timeline(items), "↑ 学生端将看到这条时间轴：{} 个节点".format(len(items)))
+    else:
+        st.info("至少填一个节点")
+    return "topo:" + seg
+
+
 def figure_editor(default_spec="", key="fig", title="配图"):
     """
-    老师端配图编辑器（方案 C）：
-      ① 从图库选图（按专业分类）
-      ② 图上文字替换（把 PC1 改成财务部PC、改 IP / VLAN 号）
-      ③ 或直接上传自己的图片（PNG/JPG/SVG，≤1MB）
+    老师端配图编辑器（方案 C+）：
+      ① 图库选图 + 图上文字替换
+      ② 自定义画图：拓扑（加主机/连线）/ 流程图（加步骤/分支）/ 时序图 / ER 图 / 时间轴
+      ③ 上传自己的图片（PNG/JPG/SVG，≤1MB）
     返回 figure 字段字符串（存库用）
     """
     kind0, name0, repl0, b64_0 = parse_figure_spec(default_spec)
     default_fig = name0 if kind0 == "lib" else ""
-
+    _MODES = ["图库选图（可改图上文字）", "自定义画图（可加节点/步骤）", "上传自己的图"]
     mode = st.radio(
         "{}来源".format(title),
-        ["图库选图（可改图上文字）", "上传自己的图"],
-        index=0 if kind0 != "img" else 1,
+        _MODES,
+        index={"lib": 0, "topo": 1, "img": 2}.get(kind0, 0),
         horizontal=True,
         key="{}_mode".format(key),
     )
 
+    # ---------- 自定义画图 ----------
+    if mode == _MODES[1]:
+        return _custom_figure_editor(default_spec, key, default_fig)
+
     # ---------- 上传自己的图 ----------
-    if mode == "上传自己的图":
+    if mode == _MODES[2]:
         up = st.file_uploader(
             "上传图片（PNG / JPG / SVG，≤1MB）",
             type=["png", "jpg", "jpeg", "svg"],
@@ -1359,8 +1725,8 @@ def figure_editor(default_spec="", key="fig", title="配图"):
             uniq.append(t)
 
     st.markdown("**图上文字替换**（不改图结构，只把字换掉）")
-    st.caption("例：把 `PC1` 改成 `财务部PC`，把 `192.168.1.10` 改成你班里用的地址。"
-               "左列留空表示不改。")
+    st.caption("一行写一条，格式：`原文字 => 改成`，写完按回车即生效。"
+               "例：`PC1 => 财务部PC`，把 `192.168.1.10` 改成你班里用的地址也行。")
     if uniq:
         with st.expander("👀 这张图上的文字（可复制到下面）", expanded=False):
             st.write("　".join("`{}`".format(t) for t in uniq[:40]))
@@ -1369,15 +1735,17 @@ def figure_editor(default_spec="", key="fig", title="配图"):
                         value=max(1, len(repl0)), key="{}_n".format(key))
     repl = []
     for i in range(int(n)):
-        c1, c2 = st.columns([1, 1])
-        old = c1.text_input("原文字 {}".format(i + 1),
-                            value=repl0[i][0] if i < len(repl0) else "",
-                            key="{}_o{}".format(key, i), placeholder="PC1")
-        new = c2.text_input("改成 {}".format(i + 1),
-                            value=repl0[i][1] if i < len(repl0) else "",
-                            key="{}_v{}".format(key, i), placeholder="财务部PC")
-        if old.strip():
-            repl.append((old.strip(), new.strip()))
+        pair = st.text_input(
+            "替换 {}".format(i + 1),
+            value="{} => {}".format(*repl0[i]) if i < len(repl0) else "",
+            key="{}_p{}".format(key, i),
+            placeholder="PC1 => 财务部PC",
+            label_visibility="collapsed" if i else "visible",
+        )
+        if "=>" in pair:
+            a, b = pair.split("=>", 1)
+            if a.strip():
+                repl.append((a.strip(), b.strip()))
 
     preview_spec = build_figure_spec("lib", picked, repl)
     render_figure_spec(preview_spec, "↑ 学生端将看到这张（{}）".format(_fig_label(picked)))
